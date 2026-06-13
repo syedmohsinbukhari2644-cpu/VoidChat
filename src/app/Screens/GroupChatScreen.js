@@ -1,0 +1,776 @@
+import { useState, useEffect } from 'react'
+import {
+  View, Text, StyleSheet, TouchableOpacity,
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert
+} from 'react-native'
+
+import { getGroupMessages, sendGroupMessage } from '../api'
+
+export default function GroupChatScreen({ group, onBack }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loadingMessages, setLoadingMessages] = useState(false)
+
+  const [showGroupMenu, setShowGroupMenu] = useState(false)
+  const [showMediaMenu, setShowMediaMenu] = useState(false)
+  const [showMembers, setShowMembers] = useState(false)
+  const [selectedFilter, setSelectedFilter] = useState('normal')
+  const [showFilterMenu, setShowFilterMenu] = useState(false)
+
+  const fetchMessages = async () => {
+    try {
+      if (!group?.id) return
+      setLoadingMessages(true)
+      const res = await getGroupMessages(group.id)
+      if (res?.data?.success && Array.isArray(res.data.messages)) {
+        setMessages(res.data.messages.map((m, idx) => ({
+          id: m._id || m.id || String(idx),
+          from: m.user?._id || m.user?._id ? 'You' : 'Them',
+          avatar: m.user?._id ? '👩' : '👨',
+          type: 'text',
+          text: m.content,
+          time: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          streak: false,
+        })))
+      } else if (Array.isArray(res?.data?.messages)) {
+        setMessages(res.data.messages)
+      }
+    } catch (e) {
+      Alert.alert('Load failed', e?.message || 'Unknown error')
+    } finally {
+      setLoadingMessages(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchMessages()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.id])
+
+  // Group management (for now UI only; messages are real)
+
+  const [groupMembers, setGroupMembers] = useState([
+    { id: 1, name: 'Ali Khan', avatar: '👨', status: 'admin', joined: '2 days ago' },
+    { id: 2, name: 'Fatima', avatar: '👩‍🦰', status: 'member', joined: '1 day ago' },
+    { id: 3, name: 'Hassan', avatar: '👨‍🦱', status: 'member', joined: '12 hours ago' },
+    { id: 4, name: 'You', avatar: '👩', status: 'admin', joined: 'now' },
+  ])
+  const [newMemberName, setNewMemberName] = useState('')
+  const [showAddMember, setShowAddMember] = useState(false)
+
+
+  const cameraFilters = [
+    { name: 'normal', label: 'Normal', emoji: '📷' },
+    { name: 'sepia', label: 'Sepia', emoji: '🟤' },
+    { name: 'cool', label: 'Cool', emoji: '❄️' },
+    { name: 'bw', label: 'B&W', emoji: '⚫' },
+    { name: 'vintage', label: 'Vintage', emoji: '🎬' },
+    { name: 'neon', label: 'Neon', emoji: '⚡' },
+    { name: 'blur', label: 'Blur', emoji: '🌫️' },
+    { name: 'bright', label: 'Bright', emoji: '☀️' },
+  ]
+
+  const sendMessage = async () => {
+    if (!input.trim()) return
+    
+    try {
+      if (!group?.id) {
+        Alert.alert('Group missing', 'Group id not found')
+        return
+      }
+
+      await sendGroupMessage(group.id, { content: input.trim() })
+      setInput('')
+
+      // refresh messages
+      await fetchMessages()
+    } catch (e) {
+      Alert.alert('Send failed', e?.message || 'Unknown error')
+    }
+  }
+
+
+  const addMember = () => {
+    if (!newMemberName.trim()) {
+      Alert.alert('⚠️ Name required', 'Member ka naam likho')
+      return
+    }
+    
+    const avatars = ['👨', '👩', '👨‍🦱', '👩‍🦰', '👨‍🦲', '👩‍🦳']
+    const newMember = {
+      id: Date.now(),
+      name: newMemberName,
+      avatar: avatars[Math.floor(Math.random() * avatars.length)],
+      status: 'member',
+      joined: 'now'
+    }
+    
+    setGroupMembers(prev => [...prev, newMember])
+    setNewMemberName('')
+    setShowAddMember(false)
+    Alert.alert('✅ Added', `${newMemberName} group me add ho gaya!`)
+  }
+
+  const removeMember = (memberId) => {
+    if (groupMembers.length <= 2) {
+      Alert.alert('⚠️ Cannot remove', 'Group me kam se kam 2 member hone chaiye')
+      return
+    }
+    
+    const memberName = groupMembers.find(m => m.id === memberId)?.name
+    setGroupMembers(prev => prev.filter(m => m.id !== memberId))
+    Alert.alert('🗑️ Removed', `${memberName} group se nikala gaya`)
+  }
+
+  // legacy UI helper for media menu (mock) — text send uses real API
+  const sendGroupMessage = (content, type = 'text') => {
+    const msg = {
+      id: Date.now().toString(),
+      from: 'You',
+      avatar: '👩',
+      type: type,
+      text: content,
+      time: new Date().toLocaleTimeString([], {
+        hour: '2-digit', minute: '2-digit'
+      }),
+      streak: false
+    }
+    setMessages(prev => [...prev, msg])
+    setShowMediaMenu(false)
+    setShowFilterMenu(false)
+  }
+
+
+  const leaveGroup = () => {
+    Alert.alert(
+      '👋 Group chhod do?',
+      'Aap is group se nikal jayenge',
+      [
+        { text: 'Cancel', onPress: () => {} },
+        { 
+          text: 'Leave', 
+          onPress: () => {
+            Alert.alert('👋 Left', 'Group se nikal gaye!')
+            onBack()
+          }
+        }
+      ]
+    )
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity onPress={onBack}>
+            <Text style={styles.backIcon}>← </Text>
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.groupName}>{group?.name || 'Group Chat'}</Text>
+            <Text style={styles.memberCount}>👥 {groupMembers.length} members</Text>
+          </View>
+        </View>
+        <TouchableOpacity 
+          style={styles.groupInfoBtn}
+          onPress={() => setShowGroupMenu(!showGroupMenu)}
+        >
+          <Text style={styles.groupInfoIcon}>ⓘ</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Group Info Menu */}
+      {showGroupMenu && (
+        <View style={styles.groupMenu}>
+          <TouchableOpacity 
+            style={styles.menuOption}
+            onPress={() => {
+              setShowMembers(!showMembers)
+              setShowGroupMenu(false)
+            }}
+          >
+            <Text style={styles.menuIcon}>👥</Text>
+            <Text style={styles.menuLabel}>Members ({groupMembers.length})</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.menuOption}
+            onPress={() => {
+              setShowAddMember(true)
+              setShowGroupMenu(false)
+            }}
+          >
+            <Text style={styles.menuIcon}>➕</Text>
+            <Text style={styles.menuLabel}>Add Member</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.menuOption}
+            onPress={() => Alert.alert('⚙️ Settings', 'Group settings here')}
+          >
+            <Text style={styles.menuIcon}>⚙️</Text>
+            <Text style={styles.menuLabel}>Group Settings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.menuOption, styles.menuOptionDanger]}
+            onPress={leaveGroup}
+          >
+            <Text style={styles.menuIcon}>🚪</Text>
+            <Text style={[styles.menuLabel, styles.menuLabelDanger]}>Leave Group</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Members Panel */}
+      {showMembers && (
+        <View style={styles.membersPanel}>
+          <View style={styles.membersPanelHeader}>
+            <Text style={styles.membersPanelTitle}>👥 Group Members</Text>
+            <TouchableOpacity onPress={() => setShowMembers(false)}>
+              <Text style={styles.membersPanelClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.membersList}>
+            {groupMembers.map((member) => (
+              <View key={member.id} style={styles.memberItem}>
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberAvatar}>{member.avatar}</Text>
+                  <View style={styles.memberDetails}>
+                    <View style={styles.memberNameRow}>
+                      <Text style={styles.memberName}>{member.name}</Text>
+                      {member.status === 'admin' && (
+                        <Text style={styles.adminBadge}>👑 Admin</Text>
+                      )}
+                    </View>
+                    <Text style={styles.memberJoined}>Joined: {member.joined}</Text>
+                  </View>
+                </View>
+                {member.name !== 'You' && (
+                  <TouchableOpacity 
+                    style={styles.removeBtn}
+                    onPress={() => removeMember(member.id)}
+                  >
+                    <Text style={styles.removeBtnIcon}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Add Member Modal */}
+      {showAddMember && (
+        <View style={styles.addMemberOverlay}>
+          <View style={styles.addMemberModal}>
+            <Text style={styles.addMemberTitle}>➕ Add Member</Text>
+            <TextInput
+              style={styles.addMemberInput}
+              placeholder="Member ka naam likho..."
+              placeholderTextColor="#6b7280"
+              value={newMemberName}
+              onChangeText={setNewMemberName}
+            />
+            <View style={styles.addMemberButtons}>
+              <TouchableOpacity 
+                style={styles.addMemberCancelBtn}
+                onPress={() => {
+                  setShowAddMember(false)
+                  setNewMemberName('')
+                }}
+              >
+                <Text style={styles.addMemberCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.addMemberAddBtn}
+                onPress={addMember}
+              >
+                <Text style={styles.addMemberAddText}>➕ Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Messages */}
+      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+        {loadingMessages && (
+          <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
+        )}
+
+        {!loadingMessages && messages.length === 0 && (
+          <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>
+            No messages yet
+          </Text>
+        )}
+
+        {messages.map((msg) => (
+          <View key={msg.id} style={[styles.msgRow, msg.from === 'You' ? styles.msgRowMe : styles.msgRowThem]}>
+            {msg.from !== 'You' && (
+              <Text style={styles.msgAvatar}>{msg.avatar}</Text>
+            )}
+
+            <View style={[styles.bubble, msg.from === 'You' ? styles.bubbleMe : styles.bubbleThem]}>
+              {msg.from !== 'You' && (
+                <Text style={styles.senderName}>{msg.from}</Text>
+              )}
+              <Text style={styles.msgText}>{msg.text}</Text>
+              <View style={styles.msgMeta}>
+                <Text style={styles.msgTime}>{msg.time}</Text>
+                {msg.from === 'You' && <Text style={styles.msgStatus}>✓✓</Text>}
+                {msg.streak && <Text style={styles.streakBadge}>🔥</Text>}
+              </View>
+            </View>
+
+            {msg.from === 'You' && (
+              <Text style={styles.msgAvatar}>{msg.avatar}</Text>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+
+
+      {/* Filter Menu */}
+      {showFilterMenu && (
+        <View style={styles.filterMenu}>
+          <View style={styles.filterHeader}>
+            <Text style={styles.filterTitle}>Choose Filter</Text>
+            <TouchableOpacity onPress={() => setShowFilterMenu(false)}>
+              <Text style={styles.filterClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+            {cameraFilters.map((filter) => (
+              <TouchableOpacity 
+                key={filter.name}
+                style={[
+                  styles.filterOption,
+                  selectedFilter === filter.name && styles.filterOptionActive
+                ]}
+                onPress={() => setSelectedFilter(filter.name)}
+              >
+                <Text style={styles.filterEmoji}>{filter.emoji}</Text>
+                <Text style={styles.filterLabel}>{filter.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Media Menu */}
+      {showMediaMenu && (
+        <View style={styles.mediaMenu}>
+          <TouchableOpacity 
+            style={styles.mediaOption} 
+            onPress={() => {
+              setShowFilterMenu(true)
+              setShowMediaMenu(false)
+            }}
+          >
+            <Text style={styles.mediaIcon}>📷</Text>
+            <Text style={styles.mediaLabel}>Camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.mediaOption}
+            onPress={() => sendGroupMessage('🖼️ Image shared', 'image')}
+          >
+            <Text style={styles.mediaIcon}>🖼️</Text>
+            <Text style={styles.mediaLabel}>Gallery</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.mediaOption}
+            onPress={() => sendGroupMessage('📍 Location: Karachi', 'location')}
+          >
+            <Text style={styles.mediaIcon}>📍</Text>
+            <Text style={styles.mediaLabel}>Location</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.mediaOption}
+            onPress={() => sendGroupMessage('👥 Contact shared', 'contact')}
+          >
+            <Text style={styles.mediaIcon}>👤</Text>
+            <Text style={styles.mediaLabel}>Contact</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.mediaOption}
+            onPress={() => sendGroupMessage('📄 Document.pdf', 'document')}
+          >
+            <Text style={styles.mediaIcon}>📄</Text>
+            <Text style={styles.mediaLabel}>Document</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Input */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={styles.inputArea}>
+          <View style={styles.inputRow}>
+            <TouchableOpacity 
+              style={styles.mediaBtn}
+              onPress={() => setShowMediaMenu(!showMediaMenu)}
+            >
+              <Text style={styles.mediaBtnIcon}>+</Text>
+            </TouchableOpacity>
+            <TextInput
+              style={styles.input}
+              placeholder="Message likho..."
+              placeholderTextColor="#4b5563"
+              value={input}
+              onChangeText={setInput}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.sendBtn, input.trim() && styles.sendBtnActive]}
+              onPress={sendMessage}
+            >
+              <Text style={styles.sendIcon}>➤</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  
+  backIcon: { fontSize: 20, color: '#d946ef', fontWeight: '800' },
+  
+  groupName: { color: '#f9fafb', fontSize: 16, fontWeight: '700' },
+  
+  memberCount: { color: '#6b7280', fontSize: 11, marginTop: 2 },
+  
+  groupInfoBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1a0a2e',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#d946ef',
+  },
+  
+  groupInfoIcon: { fontSize: 18, color: '#d946ef' },
+  
+  groupMenu: {
+    backgroundColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    padding: 8,
+    gap: 4,
+  },
+  
+  menuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#0a0a0a',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  
+  menuOptionDanger: {
+    borderColor: '#ff4d4d30',
+  },
+  
+  menuIcon: { fontSize: 18 },
+  
+  menuLabel: { color: '#f9fafb', fontWeight: '600', fontSize: 12 },
+  
+  menuLabelDanger: { color: '#ff4d4d' },
+  
+  membersPanel: {
+    backgroundColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    maxHeight: 300,
+    marginVertical: 8,
+  },
+  
+  membersPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  
+  membersPanelTitle: { color: '#d946ef', fontWeight: '700', fontSize: 13 },
+  
+  membersPanelClose: { color: '#6b7280', fontSize: 16, fontWeight: '700' },
+  
+  membersList: { paddingHorizontal: 8, paddingVertical: 8 },
+  
+  memberItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0a0a0a',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  
+  memberInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  
+  memberAvatar: { fontSize: 24 },
+  
+  memberDetails: { flex: 1 },
+  
+  memberNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  
+  memberName: { color: '#f9fafb', fontWeight: '700', fontSize: 12 },
+  
+  adminBadge: { color: '#d946ef', fontSize: 10, fontWeight: '700' },
+  
+  memberJoined: { color: '#6b7280', fontSize: 9, marginTop: 2 },
+  
+  removeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ff4d4d20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ff4d4d30',
+  },
+  
+  removeBtnIcon: { color: '#ff4d4d', fontSize: 14, fontWeight: '700' },
+  
+  addMemberOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  
+  addMemberModal: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    width: '80%',
+    padding: 16,
+  },
+  
+  addMemberTitle: { color: '#d946ef', fontWeight: '700', fontSize: 14, marginBottom: 12 },
+  
+  addMemberInput: {
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#f9fafb',
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  
+  addMemberButtons: { flexDirection: 'row', gap: 8 },
+  
+  addMemberCancelBtn: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  
+  addMemberCancelText: { color: '#6b7280', fontWeight: '700', fontSize: 12 },
+  
+  addMemberAddBtn: {
+    flex: 1,
+    backgroundColor: '#d946ef20',
+    borderWidth: 1,
+    borderColor: '#d946ef',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  
+  addMemberAddText: { color: '#d946ef', fontWeight: '700', fontSize: 12 },
+  
+  messagesContainer: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
+  
+  msgRow: { marginVertical: 4, flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
+  
+  msgRowMe: { justifyContent: 'flex-end' },
+  
+  msgRowThem: { justifyContent: 'flex-start' },
+  
+  msgAvatar: { fontSize: 28 },
+  
+  bubble: {
+    maxWidth: '70%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  
+  bubbleMe: { backgroundColor: '#d946ef', borderBottomRightRadius: 4 },
+  
+  bubbleThem: { backgroundColor: '#1a1a2e', borderBottomLeftRadius: 4 },
+  
+  senderName: { color: '#d946ef', fontSize: 10, fontWeight: '700', marginBottom: 2 },
+  
+  msgText: { color: '#f9fafb', fontSize: 13, fontWeight: '500' },
+  
+  msgMeta: { flexDirection: 'row', gap: 6, marginTop: 4, alignItems: 'center' },
+  
+  msgTime: { color: '#6b7280', fontSize: 10 },
+  
+  msgStatus: { color: '#ffffff80', fontSize: 10 },
+  
+  streakBadge: { fontSize: 12 },
+  
+  filterMenu: {
+    backgroundColor: '#111',
+    borderTopWidth: 1,
+    borderTopColor: '#1a1a1a',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  
+  filterTitle: { color: '#d946ef', fontWeight: '700', fontSize: 13 },
+  
+  filterClose: { color: '#6b7280', fontSize: 16, fontWeight: '700' },
+  
+  filterScroll: { flexDirection: 'row', paddingHorizontal: 4 },
+  
+  filterOption: {
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#3f3f3f',
+  },
+  
+  filterOptionActive: { backgroundColor: '#d946ef20', borderColor: '#d946ef' },
+  
+  filterEmoji: { fontSize: 28, marginBottom: 4 },
+  
+  filterLabel: { color: '#f9fafb', fontSize: 10, fontWeight: '600' },
+  
+  mediaMenu: {
+    backgroundColor: '#111',
+    borderTopWidth: 1,
+    borderTopColor: '#1a1a1a',
+    padding: 8,
+    gap: 4,
+  },
+  
+  mediaOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#0a0a0a',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  
+  mediaIcon: { fontSize: 18 },
+  
+  mediaLabel: { color: '#f9fafb', fontWeight: '600', fontSize: 12 },
+  
+  inputArea: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#1a1a1a', padding: 12 },
+  
+  inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
+  
+  mediaBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#d946ef20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#d946ef',
+    marginRight: 4,
+  },
+  
+  mediaBtnIcon: { fontSize: 20, color: '#d946ef', fontWeight: '800' },
+  
+  input: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    color: '#f9fafb',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#3f3f3f',
+    maxHeight: 100,
+    fontWeight: '500',
+  },
+  
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#3f3f3f',
+    marginLeft: 4,
+  },
+  
+  sendBtnActive: { backgroundColor: '#d946ef', borderColor: '#d946ef' },
+  
+  sendIcon: { fontSize: 18, color: '#d946ef', fontWeight: '800' },
+})
