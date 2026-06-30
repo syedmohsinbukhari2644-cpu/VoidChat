@@ -13,7 +13,7 @@ const mockReels = [
   {
     id: '1',
     user: 'inklab_pk',
-    caption: 'Haq ki baat — AZAAD pe! 🔓 #freedom',
+caption: 'Haq ki baat — VOID CHAT pe! 🔓 #freedom',
     views: '2.3M',
     likes: 45231,
     azd: 4600,
