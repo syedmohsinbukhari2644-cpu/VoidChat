@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-// Tumhara backend server
+// Backend server config
 const API = axios.create({
-  baseURL: 'http://localhost:3000/api',
+  baseURL: 'https://voidchat-production.up.railway.app/api',
   timeout: 10000,
 })
 
@@ -35,10 +35,10 @@ export const createPost = (data) => API.post('/posts', data)
 export const likePost = (id) => API.put(`/posts/${id}/like`)
 export const commentPost = (id, data) => API.post(`/posts/${id}/comment`, data)
 
-// AZD APIs
-export const getBalance = () => API.get('/azd/balance')
-export const dailyLogin = () => API.post('/azd/daily-login')
-export const transferAZD = (data) => API.post('/azd/transfer', data)
+// VOID APIs
+export const getBalance = () => API.get('/VOID/balance')
+export const dailyLogin = () => API.post('/VOID/daily-login')
+export const transferVOID = (data) => API.post('/VOID/transfer', data)
 
 // Messages APIs
 export const sendMessage = (data) => API.post('/messages/send', data)

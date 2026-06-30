@@ -3,13 +3,14 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert
 } from 'react-native'
+import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
 
 const mockMessages = [
   {
     id: '1',
     from: 'them',
     type: 'text',
-    text: 'Salam! AZAAD pe aakar acha laga 🔓',
+    text: 'Salam! VOID CHAT pe aakar acha laga 🔓',
     time: '10:30',
     streak: false
   },
@@ -25,7 +26,7 @@ const mockMessages = [
     id: '3',
     from: 'them',
     type: 'text',
-    text: 'Streak maintain karo — AZD milega! 🔥',
+    text: 'Streak maintain karo — VOID milega! 🔥',
     time: '10:32',
     streak: true
   },
@@ -115,7 +116,8 @@ export default function ChatScreen({ contact, onBack }) {
       id: Date.now().toString(),
       from: 'me',
       type: 'text',
-      text: input.trim(),
+      text: encryptMessage(input.trim()),
+      originalText: input.trim(), // Keep original for sender view
       time: new Date().toLocaleTimeString([], {
         hour: '2-digit', minute: '2-digit'
       }),
@@ -599,10 +601,10 @@ export default function ChatScreen({ contact, onBack }) {
         </View>
       )}
 
-      {/* AZD Earned */}
-      <View style={styles.azdBar}>
-        <Text style={styles.azdBarText}>
-          ⚡ Is chat se: +{streak * 50} AZD kamaye!
+      {/* VOID Earned */}
+      <View style={styles.VOIDBar}>
+        <Text style={styles.VOIDBarText}>
+          ⚡ Is chat se: +{streak * 50} VOID kamaye!
         </Text>
       </View>
 
@@ -746,13 +748,17 @@ export default function ChatScreen({ contact, onBack }) {
             
             {msg.type === 'text' && (
               <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
-                <Text style={styles.msgText}>{msg.text}</Text>
+                {msg.from === 'me' ? (
+                  <Text style={styles.msgText}>{msg.originalText || decryptMessage(msg.text)}</Text>
+                ) : (
+                  <Text style={styles.msgText}>{decryptMessage(msg.text)}</Text>
+                )}
                 <View style={styles.msgMeta}>
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && (
                     <Text style={styles.msgStatus}>✓✓</Text>
                   )}
-                  <Text style={styles.msgLock}>🔒</Text>
+                  <Text style={styles.msgLock}>🔐</Text>
                 </View>
               </View>
             )}
@@ -1167,14 +1173,14 @@ const styles = StyleSheet.create({
   },
   endCallText: { color: '#fff', fontWeight: '600', fontSize: 11 },
   
-  azdBar: {
+  VOIDBar: {
     backgroundColor: '#1a2a00',
     padding: 8,
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#c8ff0020',
   },
-  azdBarText: { color: '#c8ff00', fontSize: 11, fontWeight: '600' },
+  VOIDBarText: { color: '#c8ff00', fontSize: 11, fontWeight: '600' },
   messages: { flex: 1 },
   msgRow: { flexDirection: 'row', marginBottom: 4 },
   msgRowMe: { justifyContent: 'flex-end' },
