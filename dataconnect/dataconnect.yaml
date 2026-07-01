@@ -1,13 +1,13 @@
 specVersion: "v1"
-serviceId: "azaad-app-service"
+serviceId: "VOID CHAT-app-service"
 location: "us-east4"
 schemas:
   - source: "./schema"
     datasource:
       postgresql:
-        database: "azaad-app-database"
+        database: "VOID CHAT-app-database"
         cloudSql:
-          instanceId: "azaad-app-instance"
+          instanceId: "VOID CHAT-app-instance"
           # schemaValidation: "STRICT"     # STRICT mode makes Postgres schema match Data Connect exactly.
           # schemaValidation: "COMPATIBLE" # COMPATIBLE mode makes Postgres schema compatible with Data Connect.
 connectorDirs: ["./example"]

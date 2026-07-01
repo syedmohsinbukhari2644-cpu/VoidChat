@@ -43,7 +43,7 @@ export default function CreateScreen({ onClose }) {
           disabled={loading}
         >
           <Text style={styles.postBtnText}>
-            {loading ? 'Posting...' : 'Post +40 AZD'}
+            {loading ? 'Posting...' : 'Post +40 VOID'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -51,7 +51,7 @@ export default function CreateScreen({ onClose }) {
       <ScrollView style={styles.content}>
         <TextInput
           style={styles.input}
-          placeholder="Kya soch rahe ho? Azaad ho ke likho... 🔓"
+          placeholder="Kya soch rahe ho? VOID ho ke likho... 🔓"
           placeholderTextColor="#4b5563"
           value={content}
           onChangeText={setContent}
@@ -73,12 +73,12 @@ export default function CreateScreen({ onClose }) {
           </Text>
         </TouchableOpacity>
 
-        {/* AZD Info */}
-        <View style={styles.azdInfo}>
-          <Text style={styles.azdInfoTitle}>⚡ AZD Earn Karo:</Text>
-          <Text style={styles.azdInfoItem}>📝 Post karo → +40 AZD</Text>
-          <Text style={styles.azdInfoItem}>❤️ Like milein → +2 AZD per like</Text>
-          <Text style={styles.azdInfoItem}>💬 Comment milein → +5 AZD per comment</Text>
+        {/* VOID Info */}
+        <View style={styles.VOIDInfo}>
+          <Text style={styles.VOIDInfoTitle}>⚡ VOID Earn Karo:</Text>
+          <Text style={styles.VOIDInfoItem}>📝 Post karo → +40 VOID</Text>
+          <Text style={styles.VOIDInfoItem}>❤️ Like milein → +2 VOID per like</Text>
+          <Text style={styles.VOIDInfoItem}>💬 Comment milein → +5 VOID per comment</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -134,14 +134,14 @@ const styles = StyleSheet.create({
   anonIcon: { fontSize: 20 },
   anonText: { color: '#6b7280', fontWeight: '600' },
   anonTextActive: { color: '#a5b4fc' },
-  azdInfo: {
+  VOIDInfo: {
     backgroundColor: '#1a2a00',
     borderRadius: 12, padding: 16,
     borderWidth: 1, borderColor: '#c8ff0020',
   },
-  azdInfoTitle: {
+  VOIDInfoTitle: {
     color: '#c8ff00', fontWeight: '700',
     fontSize: 13, marginBottom: 8,
   },
-  azdInfoItem: { color: '#6b7280', fontSize: 12, marginBottom: 4 },
+  VOIDInfoItem: { color: '#6b7280', fontSize: 12, marginBottom: 4 },
 })

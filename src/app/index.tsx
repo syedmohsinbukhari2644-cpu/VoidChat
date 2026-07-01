@@ -14,7 +14,7 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [activeTab, setActiveTab] = useState('feed')
   const [posts, setPosts] = useState([])
-  const [azdBalance, setAzdBalance] = useState(0)
+  const [VOIDBalance, setVOIDBalance] = useState(0)
   const [pkrValue, setPkrValue] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [showChat, setShowChat] = useState(false)
@@ -43,7 +43,7 @@ export default function App() {
   const loadBalance = async () => {
     try {
       const res = await getBalance()
-      setAzdBalance(res.data.balance)
+      setVOIDBalance(res.data.balance)
       setPkrValue(res.data.pkrValue)
     } catch (e) {}
   }
@@ -72,7 +72,7 @@ export default function App() {
 
   const handlePost = async () => {
     if (!postContent.trim()) {
-      Alert.alert('Error', 'Kuch likho!')
+      Alert.alert('Error', 'Write something first!')
       return
     }
     setPosting(true)
@@ -89,7 +89,7 @@ export default function App() {
 
   const handleLogin = (token, balance) => {
     setToken(token)
-    setAzdBalance(balance)
+    setVOIDBalance(balance)
     setIsLoggedIn(true)
   }
 
@@ -110,10 +110,10 @@ export default function App() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logo}>AZAAD 🔓</Text>
+        <Text style={styles.logo}>VOID CHAT 🔓</Text>
         <View style={styles.headerRight}>
-          <View style={styles.azdBadge}>
-            <Text style={styles.azdText}>⚡ {azdBalance} AZD</Text>
+          <View style={styles.VOIDBadge}>
+            <Text style={styles.VOIDText}>⚡ {VOIDBalance} VOID</Text>
           </View>
           <TouchableOpacity onPress={() => setShowNotifs(true)}>
             <Text style={styles.notifBtn}>🔔</Text>
@@ -131,13 +131,13 @@ export default function App() {
               <View style={styles.emptyFeed}>
                 <Text style={styles.emptyIcon}>🔓</Text>
                 <Text style={styles.emptyText}>
-                  Pehla post karo — 40 AZD kamao!
+                  Make your first post — earn 40 VOID!
                 </Text>
                 <TouchableOpacity
                   style={styles.emptyBtn}
                   onPress={() => setShowCreate(true)}
                 >
-                  <Text style={styles.emptyBtnText}>Post Karo</Text>
+                  <Text style={styles.emptyBtnText}>Post Now</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -159,9 +159,9 @@ export default function App() {
                       </Text>
                       <Text style={styles.postTime}>🔐 Encrypted</Text>
                     </View>
-                    <View style={styles.azdEarned}>
-                      <Text style={styles.azdEarnedText}>
-                        +{post.azdEarned} AZD
+                    <View style={styles.VOIDEarned}>
+                      <Text style={styles.VOIDEarnedText}>
+                        +{post.VOIDEarned} VOID
                       </Text>
                     </View>
                   </View>
@@ -197,7 +197,7 @@ export default function App() {
         {activeTab === 'inbox' && (
           <ScrollView style={styles.content}>
             <View style={styles.adBanner}>
-              <Text style={styles.adText}>📢 Sponsored — Sirf Inbox Mein</Text>
+              <Text style={styles.adText}>📢 Sponsored</Text>
             </View>
             {chats.map(chat => (
               <TouchableOpacity
@@ -236,8 +236,8 @@ export default function App() {
           <ScrollView style={styles.content}>
             <View style={{ padding: 16, gap: 12 }}>
               <View style={styles.walletCard}>
-                <Text style={styles.walletLabel}>⚡ AZD Balance</Text>
-                <Text style={styles.walletBalance}>{azdBalance} AZD</Text>
+                <Text style={styles.walletLabel}>⚡ VOID Balance</Text>
+                <Text style={styles.walletBalance}>{VOIDBalance} VOID</Text>
                 <Text style={styles.walletPKR}>≈ {pkrValue} PKR</Text>
                 <View style={styles.walletBtns}>
                   <TouchableOpacity style={styles.walletBtn}>
@@ -255,13 +255,13 @@ export default function App() {
               </View>
 
               <View style={styles.miningCard}>
-                <Text style={styles.miningTitle}>⛏️ AZD Mining Active!</Text>
-                <Text style={styles.miningPoints}>{azdBalance} Points</Text>
+                <Text style={styles.miningTitle}>⛏️ VOID Mining Active!</Text>
+                <Text style={styles.miningPoints}>{VOIDBalance} Points</Text>
                 <View style={styles.progressBar}>
                   <View style={[styles.progressFill, { width: '8%' }]} />
                 </View>
                 <Text style={styles.miningNote}>
-                  8.2M / 100M users — Launch pe Real Coins! 🚀
+                  8.2M / 100M users — Real Coins at launch! 🚀
                 </Text>
               </View>
 
@@ -292,15 +292,15 @@ export default function App() {
               <View style={styles.profileAvatar}>
                 <Text style={styles.profileAvatarText}>M</Text>
               </View>
-              <Text style={styles.profileName}>@mera_azaad</Text>
+              <Text style={styles.profileName}>@my_voidchat</Text>
               <Text style={styles.profileBio}>
-                Haq ki baat • Privacy first 🔐
+                Truth first • Privacy first 🔐
               </Text>
               <View style={styles.profileStats}>
                 {[
                   { label: 'Posts', value: posts.length.toString() },
                   { label: 'Followers', value: '0' },
-                  { label: 'AZD', value: azdBalance.toString() },
+                  { label: 'VOID', value: VOIDBalance.toString() },
                 ].map((stat, i) => (
                   <View key={i} style={styles.statItem}>
                     <Text style={styles.statValue}>{stat.value}</Text>
@@ -383,7 +383,7 @@ export default function App() {
               disabled={posting}
             >
               <Text style={styles.postBtnText}>
-                {posting ? 'Posting...' : 'Post +40 AZD'}
+                {posting ? 'Posting...' : 'Post +40 VOID'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -394,7 +394,7 @@ export default function App() {
                 style={[styles.inputText, !postContent && { color: '#4b5563' }]}
                 onPress={() => {}}
               >
-                {postContent || 'Kya soch rahe ho? Azaad ho ke likho... 🔓'}
+                {postContent || 'What\'s on your mind? Speak freely... 🔓'}
               </Text>
             </View>
 
@@ -408,11 +408,11 @@ export default function App() {
               </Text>
             </TouchableOpacity>
 
-            <View style={styles.azdInfoCard}>
-              <Text style={styles.azdInfoTitle}>⚡ Post karo — AZD kamao!</Text>
-              <Text style={styles.azdInfoItem}>📝 Post → +40 AZD</Text>
-              <Text style={styles.azdInfoItem}>❤️ Like milein → +2 AZD each</Text>
-              <Text style={styles.azdInfoItem}>💬 Comment milein → +5 AZD each</Text>
+            <View style={styles.VOIDInfoCard}>
+              <Text style={styles.VOIDInfoTitle}>⚡ Post & earn VOID!</Text>
+              <Text style={styles.VOIDInfoItem}>📝 Post → +40 VOID</Text>
+              <Text style={styles.VOIDInfoItem}>❤️ Likes received → +2 VOID each</Text>
+              <Text style={styles.VOIDInfoItem}>💬 Comments received → +5 VOID each</Text>
             </View>
           </View>
 
@@ -420,10 +420,10 @@ export default function App() {
           <View style={{ paddingHorizontal: 16 }}>
             <View style={styles.textBox}>
               {[
-                'Azaad hun main! 🔓',
-                'Privacy zindabad! 🛡️',
-                'Haq ki baat karunga! 🗣️',
-                'Yahan koi darr nahi! 💪',
+                'I am on VOID CHAT! 🔓',
+                'Privacy first! 🛡️',
+                'Speaking the truth! 🗣️',
+                'No fear here! 💪',
               ].map((suggestion, i) => (
                 <TouchableOpacity
                   key={i}
@@ -468,235 +468,242 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  // ── Core layout ─────────────────────────────────────────────
+  container: { flex: 1, backgroundColor: '#060608' },
+  content:   { flex: 1 },
+
+  // ── Header ──────────────────────────────────────────────────
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#1a1a24',
+    backgroundColor: '#060608',
   },
-  logo: { fontSize: 22, fontWeight: '800', color: '#c8ff00' },
+  logo: {
+    fontSize: 20, fontWeight: '900', color: '#c8ff00', letterSpacing: 1.5,
+    textShadowColor: '#c8ff0040',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  azdBadge: {
-    backgroundColor: '#1a2a00',
-    paddingHorizontal: 12, paddingVertical: 4,
-    borderRadius: 20, borderWidth: 1,
-    borderColor: '#c8ff0040',
+  VOIDBadge: {
+    backgroundColor: '#0a1600', paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: '#c8ff0035',
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2, shadowRadius: 8, elevation: 4,
   },
-  azdText: { color: '#c8ff00', fontSize: 12, fontWeight: '700' },
-  notifBtn: { fontSize: 20 },
-  content: { flex: 1 },
-  emptyFeed: {
-    alignItems: 'center',
-    paddingTop: 80, paddingBottom: 40, gap: 12,
-  },
-  emptyIcon: { fontSize: 48 },
-  emptyText: { color: '#6b7280', fontSize: 14, textAlign: 'center' },
+  VOIDText:  { color: '#c8ff00', fontSize: 12, fontWeight: '800' },
+  notifBtn:  { fontSize: 22 },
+
+  // ── Feed ────────────────────────────────────────────────────
+  emptyFeed: { alignItems: 'center', paddingTop: 80, paddingBottom: 40, gap: 16 },
+  emptyIcon: { fontSize: 56 },
+  emptyText: { color: '#6b7280', fontSize: 15, textAlign: 'center', lineHeight: 22 },
   emptyBtn: {
-    backgroundColor: '#c8ff00',
-    paddingHorizontal: 24, paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: '#c8ff00', paddingHorizontal: 28, paddingVertical: 13,
+    borderRadius: 22,
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.55, shadowRadius: 14, elevation: 8,
   },
-  emptyBtnText: { color: '#0a0a0a', fontWeight: '700' },
-  post: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#111' },
-  postHeader: {
-    flexDirection: 'row', alignItems: 'center', marginBottom: 10
+  emptyBtnText: { color: '#050608', fontWeight: '900', fontSize: 14 },
+
+  post: {
+    marginHorizontal: 12, marginTop: 10, padding: 16,
+    backgroundColor: '#0e0e14', borderRadius: 18,
+    borderWidth: 1, borderColor: '#1e1e2c',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 3,
   },
+  postHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: {
-    width: 38, height: 38, borderRadius: 19,
+    width: 40, height: 40, borderRadius: 20,
     justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: '#1e1e2c',
   },
-  avatarText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  postMeta: { flex: 1, marginLeft: 10 },
-  username: { color: '#f9fafb', fontWeight: '700', fontSize: 13 },
-  postTime: { color: '#4b5563', fontSize: 11, marginTop: 2 },
-  azdEarned: {
-    backgroundColor: '#1a2a00',
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 12, borderWidth: 1,
-    borderColor: '#c8ff0030',
+  avatarText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  postMeta:   { flex: 1, marginLeft: 12 },
+  username:   { color: '#f0f0ff', fontWeight: '700', fontSize: 14 },
+  postTime:   { color: '#4b5568', fontSize: 11, marginTop: 2 },
+  VOIDEarned: {
+    backgroundColor: '#0a1600', paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 12, borderWidth: 1, borderColor: '#c8ff0025',
   },
-  azdEarnedText: { color: '#c8ff00', fontSize: 11, fontWeight: '700' },
-  postContent: {
-    color: '#e5e7eb', fontSize: 14,
-    lineHeight: 22, marginBottom: 12,
+  VOIDEarnedText: { color: '#c8ff00', fontSize: 11, fontWeight: '700' },
+  postContent: { color: '#dcdcee', fontSize: 14, lineHeight: 22, marginBottom: 14 },
+  postActions: { flexDirection: 'row', gap: 6 },
+  actionBtn: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: '#131319', borderWidth: 1, borderColor: '#1e1e2c',
   },
-  postActions: { flexDirection: 'row', gap: 8 },
-  actionBtn: { padding: 6 },
   actionText: { color: '#6b7280', fontSize: 13 },
+
+  // ── Inbox ───────────────────────────────────────────────────
   adBanner: {
-    margin: 12, padding: 12,
-    backgroundColor: '#111', borderRadius: 10,
-    borderWidth: 1, borderColor: '#1f2937',
+    margin: 12, padding: 12, backgroundColor: '#0e0e14',
+    borderRadius: 12, borderWidth: 1, borderColor: '#1e1e2c',
   },
   adText: { color: '#6b7280', fontSize: 12 },
   chatItem: {
     flexDirection: 'row', alignItems: 'center',
-    padding: 14, borderBottomWidth: 1,
-    borderBottomColor: '#111', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#0f0f18', gap: 14,
   },
   chatAvatar: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 50, height: 50, borderRadius: 25,
     justifyContent: 'center', alignItems: 'center',
   },
   chatInfo: { flex: 1 },
-  chatName: { color: '#f9fafb', fontWeight: '600', fontSize: 14 },
-  chatLast: { color: '#6b7280', fontSize: 12, marginTop: 2 },
+  chatName:  { color: '#f0f0ff', fontWeight: '700', fontSize: 15 },
+  chatLast:  { color: '#6b7280', fontSize: 12, marginTop: 3 },
   streakBadge: {
     position: 'absolute', bottom: -2, right: -4,
-    backgroundColor: '#1a0a00',
-    paddingHorizontal: 4, paddingVertical: 1,
-    borderRadius: 8, borderWidth: 1,
-    borderColor: '#ff4d4d30',
+    backgroundColor: '#1a0a00', paddingHorizontal: 4, paddingVertical: 1,
+    borderRadius: 8, borderWidth: 1, borderColor: '#fb923c30',
   },
-  streakBadgeText: { color: '#ff4d4d', fontSize: 9 },
+  streakBadgeText: { color: '#fb923c', fontSize: 9, fontWeight: '700' },
   unreadBadge: {
-    backgroundColor: '#c8ff00', borderRadius: 10,
-    minWidth: 20, height: 20,
-    justifyContent: 'center', alignItems: 'center',
-    paddingHorizontal: 5,
+    backgroundColor: '#c8ff00', borderRadius: 12,
+    minWidth: 22, height: 22,
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 6,
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55, shadowRadius: 6, elevation: 5,
   },
-  unreadText: { color: '#0a0a0a', fontSize: 10, fontWeight: '800' },
+  unreadText: { color: '#050608', fontSize: 11, fontWeight: '900' },
+
+  // ── Wallet ──────────────────────────────────────────────────
   walletCard: {
-    backgroundColor: '#1a2a00',
-    borderRadius: 20, padding: 20,
+    backgroundColor: '#0a1600', borderRadius: 24, padding: 24,
     borderWidth: 1, borderColor: '#c8ff0030',
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.18, shadowRadius: 20, elevation: 8,
   },
-  walletLabel: { color: '#c8ff00', fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  walletBalance: { color: '#c8ff00', fontSize: 32, fontWeight: '800', marginBottom: 4 },
-  walletPKR: { color: '#6b7280', fontSize: 14, marginBottom: 16 },
-  walletBtns: { flexDirection: 'row', gap: 8 },
+  walletLabel:   { color: '#c8ff00', fontSize: 12, fontWeight: '800', marginBottom: 10, letterSpacing: 1 },
+  walletBalance: { color: '#c8ff00', fontSize: 38, fontWeight: '900', marginBottom: 4 },
+  walletPKR:     { color: '#6b7280', fontSize: 14, marginBottom: 20 },
+  walletBtns:    { flexDirection: 'row', gap: 10 },
   walletBtn: {
-    flex: 1, padding: 10,
-    backgroundColor: '#ffffff10',
-    borderRadius: 10, borderWidth: 1,
-    borderColor: '#ffffff20', alignItems: 'center',
+    flex: 1, paddingVertical: 12, backgroundColor: '#ffffff08',
+    borderRadius: 14, borderWidth: 1, borderColor: '#ffffff18', alignItems: 'center',
   },
-  walletBtnText: { color: '#f9fafb', fontSize: 12, fontWeight: '600' },
-  cashoutBtn: { backgroundColor: '#c8ff00' },
-  cashoutText: { color: '#0a0a0a' },
+  walletBtnText: { color: '#f0f0ff', fontSize: 13, fontWeight: '700' },
+  cashoutBtn: {
+    backgroundColor: '#c8ff00',
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 12, elevation: 8,
+  },
+  cashoutText: { color: '#050608', fontWeight: '900' },
   miningCard: {
-    backgroundColor: '#0a1500',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#c8ff0020',
+    backgroundColor: '#080f00', borderRadius: 20, padding: 18,
+    borderWidth: 1, borderColor: '#c8ff0018',
   },
-  miningTitle: { color: '#c8ff00', fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  miningPoints: { color: '#f9fafb', fontSize: 20, fontWeight: '800', marginBottom: 10 },
+  miningTitle:  { color: '#c8ff00', fontSize: 14, fontWeight: '800', marginBottom: 6 },
+  miningPoints: { color: '#f0f0ff', fontSize: 24, fontWeight: '900', marginBottom: 12 },
   progressBar: {
-    height: 6, backgroundColor: '#1a2a00',
-    borderRadius: 4, marginBottom: 8, overflow: 'hidden',
+    height: 6, backgroundColor: '#0d1a00', borderRadius: 4,
+    marginBottom: 8, overflow: 'hidden',
   },
   progressFill: { height: '100%', backgroundColor: '#c8ff00', borderRadius: 4 },
-  miningNote: { color: '#6b7280', fontSize: 11 },
+  miningNote:   { color: '#6b7280', fontSize: 12 },
   referMiniCard: {
-    backgroundColor: '#111',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#1f2937',
-    alignItems: 'center',
+    backgroundColor: '#0e0e14', borderRadius: 18, padding: 18,
+    borderWidth: 1, borderColor: '#1e1e2c', alignItems: 'center',
   },
-  referTitle: { color: '#f9fafb', fontWeight: '700', marginBottom: 8 },
+  referTitle: { color: '#f0f0ff', fontWeight: '800', marginBottom: 10 },
   referCode: {
-    color: '#c8ff00', fontSize: 22,
-    fontWeight: '800', letterSpacing: 2, marginBottom: 12,
+    color: '#c8ff00', fontSize: 24, fontWeight: '900',
+    letterSpacing: 3, marginBottom: 14,
   },
   referBtn: {
-    backgroundColor: '#1a2a00',
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 20, borderWidth: 1,
-    borderColor: '#c8ff0030',
+    backgroundColor: '#0a1600', paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 20, borderWidth: 1, borderColor: '#c8ff0030',
   },
-  referBtnText: { color: '#c8ff00', fontSize: 13, fontWeight: '600' },
-  profileScreen: { padding: 20, alignItems: 'center' },
+  referBtnText: { color: '#c8ff00', fontSize: 13, fontWeight: '700' },
+
+  // ── Profile ─────────────────────────────────────────────────
+  profileScreen: { padding: 24, alignItems: 'center' },
   profileAvatar: {
-    width: 80, height: 80, borderRadius: 40,
+    width: 90, height: 90, borderRadius: 45,
     backgroundColor: '#c8ff00',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
+    borderWidth: 3, borderColor: '#c8ff0060',
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5, shadowRadius: 20, elevation: 10,
   },
-  profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#0a0a0a' },
-  profileName: { color: '#f9fafb', fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  profileBio: { color: '#6b7280', fontSize: 12, marginBottom: 24 },
-  profileStats: { flexDirection: 'row', gap: 30, marginBottom: 30 },
-  statItem: { alignItems: 'center' },
-  statValue: { color: '#c8ff00', fontSize: 20, fontWeight: '800' },
-  statLabel: { color: '#6b7280', fontSize: 12 },
+  profileAvatarText: { fontSize: 36, fontWeight: '900', color: '#050608' },
+  profileName:  { color: '#f0f0ff', fontSize: 20, fontWeight: '900', marginBottom: 6 },
+  profileBio:   { color: '#6b7280', fontSize: 13, marginBottom: 28 },
+  profileStats: { flexDirection: 'row', gap: 36, marginBottom: 32 },
+  statItem:     { alignItems: 'center' },
+  statValue:    { color: '#c8ff00', fontSize: 22, fontWeight: '900' },
+  statLabel:    { color: '#6b7280', fontSize: 12, marginTop: 2 },
   profileMenuItem: {
-    flexDirection: 'row', alignItems: 'center',
-    width: '100%', padding: 14,
-    backgroundColor: '#111', borderRadius: 12,
-    marginBottom: 8, gap: 12,
-    borderWidth: 1, borderColor: '#1f2937',
+    flexDirection: 'row', alignItems: 'center', width: '100%',
+    padding: 16, backgroundColor: '#0e0e14', borderRadius: 16,
+    marginBottom: 10, gap: 14, borderWidth: 1, borderColor: '#1e1e2c',
   },
-  menuIcon: { fontSize: 18 },
-  menuLabel: { flex: 1, color: '#f9fafb', fontSize: 14, fontWeight: '500' },
-  menuArrow: { color: '#4b5563', fontSize: 18 },
+  menuIcon:  { fontSize: 20 },
+  menuLabel: { flex: 1, color: '#f0f0ff', fontSize: 15, fontWeight: '600' },
+  menuArrow: { color: '#3a3a5a', fontSize: 20 },
+
+  // ── Bottom Navigation ────────────────────────────────────────
   bottomNav: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    padding: 10, paddingBottom: 16,
-    backgroundColor: '#0a0a0a',
-    borderTopWidth: 1, borderTopColor: '#1a1a1a',
+    flexDirection: 'row', justifyContent: 'space-around',
+    alignItems: 'center', paddingVertical: 10, paddingBottom: 18,
+    backgroundColor: '#08080c',
+    borderTopWidth: 1, borderTopColor: '#1a1a24',
   },
-  navBtn: { alignItems: 'center', padding: 4 },
+  navBtn:        { alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, minWidth: 52 },
   navSpecial: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 54, height: 54, borderRadius: 27,
     backgroundColor: '#c8ff00',
     justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.65, shadowRadius: 14, elevation: 12,
   },
-  navIcon: { fontSize: 20, color: '#4b5563' },
-  navSpecialIcon: { color: '#0a0a0a' },
-  navActiveIcon: { color: '#c8ff00' },
-  navLabel: { fontSize: 9, color: '#4b5563', marginTop: 2 },
+  navIcon:        { fontSize: 22, color: '#3a3a5a' },
+  navSpecialIcon: { color: '#050608', fontWeight: '900' },
+  navActiveIcon:  { color: '#c8ff00' },
+  navLabel:       { fontSize: 10, color: '#3a3a5a', marginTop: 3, fontWeight: '600' },
   navLabelActive: { color: '#c8ff00' },
-  modalContainer: { flex: 1, backgroundColor: '#0a0a0a' },
+
+  // ── Modals ──────────────────────────────────────────────────
+  modalContainer: { flex: 1, backgroundColor: '#060608' },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', padding: 16,
+    borderBottomWidth: 1, borderBottomColor: '#1a1a24',
   },
-  cancelBtn: { color: '#6b7280', fontSize: 15 },
-  modalTitle: { color: '#f9fafb', fontSize: 16, fontWeight: '700' },
+  cancelBtn:  { color: '#6b7280', fontSize: 15, fontWeight: '600' },
+  modalTitle: { color: '#f0f0ff', fontSize: 17, fontWeight: '900' },
   postBtn: {
-    backgroundColor: '#c8ff00',
-    paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: '#c8ff00', paddingHorizontal: 16, paddingVertical: 9,
     borderRadius: 20,
+    shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.5, shadowRadius: 10, elevation: 6,
   },
-  postBtnText: { color: '#0a0a0a', fontWeight: '800', fontSize: 12 },
+  postBtnText: { color: '#050608', fontWeight: '900', fontSize: 13 },
   modalInput: {
-    backgroundColor: '#111',
-    borderRadius: 12, padding: 14,
-    minHeight: 100, borderWidth: 1,
-    borderColor: '#1f2937',
+    backgroundColor: '#0e0e14', borderRadius: 16, padding: 16,
+    minHeight: 110, borderWidth: 1, borderColor: '#1e1e2c',
   },
-  inputText: { color: '#f9fafb', fontSize: 15, lineHeight: 22 },
+  inputText: { color: '#f0f0ff', fontSize: 15, lineHeight: 24 },
   anonToggle: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 10, padding: 14,
-    backgroundColor: '#111', borderRadius: 12,
-    borderWidth: 1, borderColor: '#1f2937',
+    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16,
+    backgroundColor: '#0e0e14', borderRadius: 16,
+    borderWidth: 1, borderColor: '#1e1e2c',
   },
-  anonToggleActive: {
-    backgroundColor: '#1a1a2e',
-    borderColor: '#6366f1',
+  anonToggleActive: { backgroundColor: '#0e0c2e', borderColor: '#6366f1' },
+  anonText:         { color: '#6b7280', fontWeight: '700' },
+  VOIDInfoCard: {
+    backgroundColor: '#0a1600', borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: '#c8ff0018',
   },
-  anonText: { color: '#6b7280', fontWeight: '600' },
-  azdInfoCard: {
-    backgroundColor: '#1a2a00',
-    borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: '#c8ff0020',
-  },
-  azdInfoTitle: { color: '#c8ff00', fontWeight: '700', fontSize: 13, marginBottom: 8 },
-  azdInfoItem: { color: '#6b7280', fontSize: 12, marginBottom: 4 },
-  textBox: { gap: 8 },
+  VOIDInfoTitle: { color: '#c8ff00', fontWeight: '800', fontSize: 13, marginBottom: 10 },
+  VOIDInfoItem:  { color: '#6b7280', fontSize: 12, marginBottom: 5, lineHeight: 18 },
+  textBox:       { gap: 10 },
   suggestion: {
-    backgroundColor: '#111',
-    borderRadius: 10, padding: 12,
-    borderWidth: 1, borderColor: '#1f2937',
+    backgroundColor: '#0e0e14', borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: '#1e1e2c',
   },
-  suggestionText: { color: '#9ca3af', fontSize: 13 },
+  suggestionText: { color: '#8b8ba7', fontSize: 13 },
 })

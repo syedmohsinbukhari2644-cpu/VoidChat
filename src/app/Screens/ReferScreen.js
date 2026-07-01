@@ -4,16 +4,28 @@ import {
   ScrollView, Share, Alert
 } from 'react-native'
 
+// ─── Design Tokens ────────────────────────────────────────────
+const C = {
+  bg:       '#060608',
+  surface:  '#0e0e14',
+  card:     '#131319',
+  border:   '#1e1e2c',
+  primary:  '#c8ff00',
+  text:     '#f0f0ff',
+  muted:    '#6b7280',
+  success:  '#4ade80',
+}
+
 export default function ReferScreen() {
   const [copied, setCopied] = useState(false)
-  const referCode = 'AZAAD-XY7K9M'
-  const referLink = `https://azaad.app/join?ref=${referCode}`
+  const referCode = 'VOID-XY7K9M'
+  const referLink = `https://voidchat.app/join?ref=${referCode}`
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `🔓 AZAAD join karo — Privacy first app!\n\nMera refer code: ${referCode}\n\nDownload karo: ${referLink}\n\n✅ Join karo aur 200 AZD Welcome Bonus pao!`,
-        title: 'AZAAD App — Join Karo!'
+        message: `🔓 Join VOID CHAT — Privacy first app!\n\nMy refer code: ${referCode}\n\nDownload here: ${referLink}\n\n✅ Join and get 200 VOID Welcome Bonus!`,
+        title: 'VOID CHAT App — Join Now!',
       })
     } catch (e) {
       Alert.alert('Error', e.message)
@@ -26,98 +38,115 @@ export default function ReferScreen() {
   }
 
   const milestones = [
-    { refers: 1, reward: '500 AZD', done: true },
-    { refers: 5, reward: '3,000 AZD', done: true },
-    { refers: 10, reward: '7,000 AZD', done: false },
-    { refers: 25, reward: '20,000 AZD', done: false },
-    { refers: 50, reward: '50,000 AZD', done: false },
-    { refers: 100, reward: '1,50,000 AZD 🔥', done: false },
+    { refers: 1,   reward: '500 VOID',       done: true,  progress: 100 },
+    { refers: 5,   reward: '3,000 VOID',     done: true,  progress: 100 },
+    { refers: 10,  reward: '7,000 VOID',     done: false, progress: 70  },
+    { refers: 25,  reward: '20,000 VOID',    done: false, progress: 28  },
+    { refers: 50,  reward: '50,000 VOID',    done: false, progress: 14  },
+    { refers: 100, reward: '1,50,000 VOID 🔥', done: false, progress: 7 },
+  ]
+
+  const steps = [
+    { step: '1', text: 'Share your code with a friend',                icon: '🔗' },
+    { step: '2', text: 'Friend downloads VOID CHAT and joins',          icon: '📲' },
+    { step: '3', text: 'You get +500 VOID — Friend gets +200 VOID',    icon: '⚡' },
+    { step: '4', text: 'Their referrals also earn you +250 VOID!',     icon: '♾️' },
   ]
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Refer & Earn</Text>
-        <Text style={styles.subtitle}>
-          Dost ko AZAAD pe laao — dono kamao!
+      {/* ── Hero Banner ──────────────────────────────────── */}
+      <View style={styles.heroBanner}>
+        <View style={styles.heroGlow} pointerEvents="none" />
+        <Text style={styles.heroEmoji}>🎁</Text>
+        <Text style={styles.heroTitle}>Refer & Earn</Text>
+        <Text style={styles.heroSub}>
+          Invite friends to VOID CHAT — both earn rewards!
         </Text>
       </View>
 
-      {/* Stats */}
+      {/* ── Stats Row ────────────────────────────────────── */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>7</Text>
-          <Text style={styles.statLabel}>Total Refers</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>3,500</Text>
-          <Text style={styles.statLabel}>AZD Kamaye</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>700</Text>
-          <Text style={styles.statLabel}>PKR Worth</Text>
-        </View>
-      </View>
-
-      {/* Refer Code */}
-      <View style={styles.codeCard}>
-        <Text style={styles.codeLabel}>Tumhara Refer Code</Text>
-        <Text style={styles.code}>{referCode}</Text>
-        <View style={styles.codeBtns}>
-          <TouchableOpacity
-            style={[styles.codeBtn, copied && styles.codeBtnCopied]}
-            onPress={handleCopy}
-          >
-            <Text style={styles.codeBtnText}>
-              {copied ? '✅ Copied!' : '📋 Copy Code'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.codeBtn, styles.shareBtn]}
-            onPress={handleShare}
-          >
-            <Text style={[styles.codeBtnText, styles.shareBtnText]}>
-              ↗️ Share Karo
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* How it works */}
-      <View style={styles.howCard}>
-        <Text style={styles.howTitle}>Kaise Kaam Karta Hai?</Text>
         {[
-          { step: '1', text: 'Refer code share karo dost ke saath' },
-          { step: '2', text: 'Dost AZAAD download kare aur join kare' },
-          { step: '3', text: 'Tumhe +500 AZD mile — Dost ko +200 AZD' },
-          { step: '4', text: 'Unka refer = Tumhe +250 AZD bhi!' },
-        ].map((item, i) => (
-          <View key={i} style={styles.howItem}>
-            <View style={styles.howStep}>
-              <Text style={styles.howStepText}>{item.step}</Text>
-            </View>
-            <Text style={styles.howText}>{item.text}</Text>
+          { value: '7',     label: 'Total Refers', icon: '👥' },
+          { value: '3,500', label: 'VOID Earned',  icon: '⚡' },
+          { value: '700',   label: 'PKR Worth',    icon: '💵' },
+        ].map((s, i) => (
+          <View key={i} style={styles.statCard}>
+            <Text style={styles.statIcon}>{s.icon}</Text>
+            <Text style={styles.statValue}>{s.value}</Text>
+            <Text style={styles.statLabel}>{s.label}</Text>
           </View>
         ))}
       </View>
 
-      {/* Milestones */}
-      <View style={styles.milestonesCard}>
-        <Text style={styles.milestonesTitle}>🏆 Milestones</Text>
+      {/* ── Refer Code Card ──────────────────────────────── */}
+      <View style={styles.codeCard}>
+        <View style={styles.codeGlow} pointerEvents="none" />
+        <Text style={styles.codeLabel}>YOUR REFER CODE</Text>
+        <Text style={styles.codeText}>{referCode}</Text>
+        <View style={styles.codeBtns}>
+          <TouchableOpacity
+            style={[styles.codeBtn, copied && styles.codeBtnSuccess]}
+            onPress={handleCopy}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.codeBtnText}>
+              {copied ? '✅  Copied!' : '📋  Copy Code'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.sharePrimaryBtn}
+            onPress={handleShare}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.sharePrimaryBtnText}>↗️  Share</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* ── How It Works ─────────────────────────────────── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>How It Works</Text>
+        {steps.map((item, i) => (
+          <View key={i} style={styles.stepRow}>
+            <View style={styles.stepBubble}>
+              <Text style={styles.stepNum}>{item.step}</Text>
+            </View>
+            <Text style={styles.stepIcon}>{item.icon}</Text>
+            <Text style={styles.stepText}>{item.text}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* ── Milestones ───────────────────────────────────── */}
+      <View style={[styles.section, { marginBottom: 40 }]}>
+        <Text style={styles.sectionTitle}>🏆 Milestones</Text>
         {milestones.map((m, i) => (
-          <View key={i} style={[
-            styles.milestone,
-            m.done && styles.milestoneDone
-          ]}>
-            <Text style={styles.milestoneIcon}>
-              {m.done ? '✅' : '🎯'}
-            </Text>
-            <Text style={styles.milestoneText}>
-              {m.refers} refers
-            </Text>
-            <Text style={styles.milestoneReward}>{m.reward}</Text>
+          <View
+            key={i}
+            style={[styles.milestoneRow, m.done && styles.milestoneDone]}
+          >
+            <Text style={styles.milestoneCheck}>{m.done ? '✅' : '🎯'}</Text>
+            <View style={styles.milestoneInfo}>
+              <View style={styles.milestoneTop}>
+                <Text style={styles.milestoneRefers}>{m.refers} refers</Text>
+                <Text
+                  style={[
+                    styles.milestoneReward,
+                    m.done && styles.milestoneRewardDone,
+                  ]}
+                >
+                  {m.reward}
+                </Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[styles.progressFill, { width: `${m.progress}%` }]}
+                />
+              </View>
+            </View>
           </View>
         ))}
       </View>
@@ -126,107 +155,147 @@ export default function ReferScreen() {
   )
 }
 
+// ─── Styles ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
-  header: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+  container: { flex: 1, backgroundColor: C.bg },
+
+  // Hero
+  heroBanner: {
+    margin: 16, marginBottom: 0,
+    backgroundColor: '#0a1600', borderRadius: 24,
+    padding: 30, alignItems: 'center',
+    borderWidth: 1, borderColor: '#c8ff0028',
+    overflow: 'hidden',
   },
-  title: {
-    color: '#c8ff00', fontSize: 24,
-    fontWeight: '800', marginBottom: 4,
+  heroGlow: {
+    position: 'absolute', width: 220, height: 220,
+    borderRadius: 110, backgroundColor: '#c8ff0010',
+    top: -60, alignSelf: 'center',
   },
-  subtitle: { color: '#6b7280', fontSize: 13 },
-  statsRow: {
-    flexDirection: 'row',
-    padding: 16, gap: 10,
+  heroEmoji: { fontSize: 44, marginBottom: 10 },
+  heroTitle: {
+    color: C.primary, fontSize: 30, fontWeight: '900',
+    letterSpacing: 1, marginBottom: 8,
+    textShadowColor: '#c8ff0055',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
   },
+  heroSub: {
+    color: C.muted, fontSize: 13,
+    textAlign: 'center', lineHeight: 20,
+  },
+
+  // Stats
+  statsRow: { flexDirection: 'row', margin: 16, gap: 10 },
   statCard: {
-    flex: 1, backgroundColor: '#111',
-    borderRadius: 14, padding: 14,
-    alignItems: 'center',
-    borderWidth: 1, borderColor: '#1f2937',
+    flex: 1, backgroundColor: C.surface,
+    borderRadius: 18, padding: 16,
+    alignItems: 'center', gap: 4,
+    borderWidth: 1, borderColor: C.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4, shadowRadius: 8, elevation: 5,
   },
-  statValue: {
-    color: '#c8ff00', fontSize: 20,
-    fontWeight: '800', marginBottom: 4,
-  },
-  statLabel: { color: '#6b7280', fontSize: 11 },
+  statIcon:  { fontSize: 22, marginBottom: 2 },
+  statValue: { color: C.primary, fontSize: 18, fontWeight: '900' },
+  statLabel: { color: C.muted, fontSize: 10, fontWeight: '600', textAlign: 'center' },
+
+  // Code card
   codeCard: {
-    margin: 16,
-    backgroundColor: '#1a2a00',
-    borderRadius: 20, padding: 20,
-    borderWidth: 1, borderColor: '#c8ff0030',
+    marginHorizontal: 16, marginBottom: 16,
+    backgroundColor: '#0a1600', borderRadius: 24,
+    padding: 26, borderWidth: 1, borderColor: '#c8ff0035',
+    alignItems: 'center', overflow: 'hidden',
+    shadowColor: '#c8ff00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.18, shadowRadius: 24,
+    elevation: 8,
+  },
+  codeGlow: {
+    position: 'absolute', width: 200, height: 200,
+    borderRadius: 100, backgroundColor: '#c8ff000a',
+    bottom: -50, right: -50,
   },
   codeLabel: {
-    color: '#6b7280', fontSize: 12,
-    marginBottom: 8, textAlign: 'center',
+    color: C.muted, fontSize: 11, fontWeight: '700',
+    letterSpacing: 2.5, marginBottom: 12,
   },
-  code: {
-    color: '#c8ff00', fontSize: 28,
-    fontWeight: '800', textAlign: 'center',
-    letterSpacing: 2, marginBottom: 16,
+  codeText: {
+    color: C.primary, fontSize: 32, fontWeight: '900',
+    letterSpacing: 5, marginBottom: 22,
+    textShadowColor: '#c8ff0070',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 16,
   },
-  codeBtns: { flexDirection: 'row', gap: 10 },
+  codeBtns: { flexDirection: 'row', gap: 10, width: '100%' },
+
   codeBtn: {
-    flex: 1, padding: 12,
-    backgroundColor: '#ffffff10',
-    borderRadius: 12, alignItems: 'center',
-    borderWidth: 1, borderColor: '#ffffff20',
+    flex: 1, paddingVertical: 14, borderRadius: 14,
+    alignItems: 'center', backgroundColor: '#ffffff08',
+    borderWidth: 1, borderColor: '#ffffff15',
   },
-  codeBtnCopied: {
-    backgroundColor: '#0a1f0a',
-    borderColor: '#4ade8040',
+  codeBtnSuccess: { backgroundColor: '#071307', borderColor: '#4ade8040' },
+  codeBtnText: { color: C.text, fontWeight: '700', fontSize: 13 },
+
+  sharePrimaryBtn: {
+    flex: 1, paddingVertical: 14, borderRadius: 14,
+    alignItems: 'center', backgroundColor: C.primary,
+    shadowColor: C.primary,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.55, shadowRadius: 14,
+    elevation: 8,
   },
-  codeBtnText: { color: '#f9fafb', fontWeight: '600', fontSize: 13 },
-  shareBtn: { backgroundColor: '#c8ff00', borderColor: '#c8ff00' },
-  shareBtnText: { color: '#0a0a0a' },
-  howCard: {
-    margin: 16, marginTop: 0,
-    backgroundColor: '#111',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#1f2937',
+  sharePrimaryBtnText: { color: '#050608', fontWeight: '900', fontSize: 13 },
+
+  // Generic section card
+  section: {
+    marginHorizontal: 16, marginBottom: 16,
+    backgroundColor: C.surface, borderRadius: 22, padding: 20,
+    borderWidth: 1, borderColor: C.border,
   },
-  howTitle: {
-    color: '#f9fafb', fontWeight: '800',
-    fontSize: 15, marginBottom: 14,
+  sectionTitle: {
+    color: C.text, fontWeight: '900', fontSize: 16, marginBottom: 18,
   },
-  howItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12, marginBottom: 12,
+
+  // Steps
+  stepRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 12, marginBottom: 16,
   },
-  howStep: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#c8ff00',
+  stepBubble: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: C.primary,
     justifyContent: 'center', alignItems: 'center',
+    shadowColor: C.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.65, shadowRadius: 10,
+    elevation: 6,
   },
-  howStepText: { color: '#0a0a0a', fontWeight: '800', fontSize: 13 },
-  howText: { color: '#9ca3af', fontSize: 13, flex: 1 },
-  milestonesCard: {
-    margin: 16, marginTop: 0,
-    backgroundColor: '#111',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#1f2937',
-    marginBottom: 32,
+  stepNum:  { color: '#050608', fontWeight: '900', fontSize: 15 },
+  stepIcon: { fontSize: 20 },
+  stepText: { color: '#9ca3af', fontSize: 13, flex: 1, lineHeight: 20 },
+
+  // Milestones
+  milestoneRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 14, padding: 14,
+    backgroundColor: '#0a0a10', borderRadius: 14,
+    marginBottom: 8, borderWidth: 1, borderColor: C.border,
   },
-  milestonesTitle: {
-    color: '#f9fafb', fontWeight: '800',
-    fontSize: 15, marginBottom: 14,
+  milestoneDone: { backgroundColor: '#071307', borderColor: '#4ade8022' },
+  milestoneCheck: { fontSize: 22 },
+  milestoneInfo: { flex: 1 },
+  milestoneTop: {
+    flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8,
   },
-  milestone: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12, padding: 12,
-    borderRadius: 10, marginBottom: 8,
-    backgroundColor: '#0a0a0a',
+  milestoneRefers: { color: C.muted, fontSize: 13 },
+  milestoneReward: { color: C.text, fontSize: 13, fontWeight: '700' },
+  milestoneRewardDone: { color: '#4ade80' },
+  progressTrack: {
+    height: 4, backgroundColor: '#1e1e2c',
+    borderRadius: 2, overflow: 'hidden',
   },
-  milestoneDone: { backgroundColor: '#0a1f0a' },
-  milestoneIcon: { fontSize: 18 },
-  milestoneText: { color: '#9ca3af', fontSize: 13, flex: 1 },
-  milestoneReward: {
-    color: '#c8ff00', fontSize: 13,
-    fontWeight: '700',
+  progressFill: {
+    height: '100%', backgroundColor: C.primary, borderRadius: 2,
   },
 })

@@ -16,7 +16,7 @@ const mockReels = [
 caption: 'Haq ki baat — VOID CHAT pe! 🔓 #freedom',
     views: '2.3M',
     likes: 45231,
-    azd: 4600,
+    VOID: 4600,
     color: '#1a1a2e'
   },
   {
@@ -25,16 +25,16 @@ caption: 'Haq ki baat — VOID CHAT pe! 🔓 #freedom',
     caption: 'Koi nahi jaanta kaun hun main 🕵️ #anonymous',
     views: '891K',
     likes: 12453,
-    azd: 1782,
+    VOID: 1782,
     color: '#16213e'
   },
   {
     id: '3',
     user: 'fatima_art',
-    caption: 'Meri zindagi mera faisla 🎨 #azaad',
+    caption: 'Meri zindagi mera faisla 🎨 #VOID CHAT',
     views: '4.1M',
     likes: 89234,
-    azd: 8200,
+    VOID: 8200,
     color: '#0f3460'
   },
 ]
@@ -87,8 +87,8 @@ export default function ReelsScreen() {
           <Text style={styles.playIcon}>▶</Text>
         </View>
         <Text style={styles.viewCount}>👁️ {reel.views} views</Text>
-        <View style={styles.azdBadge}>
-          <Text style={styles.azdText}>⚡ {reel.azd.toLocaleString()} AZD earned</Text>
+        <View style={styles.VOIDBadge}>
+          <Text style={styles.VOIDText}>⚡ {reel.VOID.toLocaleString()} VOID earned</Text>
         </View>
       </View>
 
@@ -119,7 +119,7 @@ export default function ReelsScreen() {
           { icon: '💬', count: '1.2K' },
           { icon: '↗️', count: '892' },
           { icon: '🔖', count: '' },
-          { icon: '⚡', count: 'AZD' },
+          { icon: '⚡', count: 'VOID' },
         ].map((action, i) => (
           <TouchableOpacity key={i} style={styles.actionItem}>
             <Text style={styles.actionIcon}>{action.icon}</Text>
@@ -201,7 +201,7 @@ export default function ReelsScreen() {
       {/* Creator Earn Info */}
       <View style={styles.earnInfo}>
         <Text style={styles.earnText}>
-          🎬 Creator ne {reel.azd.toLocaleString()} AZD kamaye!
+          🎬 Creator ne {reel.VOID.toLocaleString()} VOID kamaye!
         </Text>
         <Text style={styles.earnSub}>
           Tum bhi reel banao — followers ki zaroorat nahi!
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
   },
   playIcon: { fontSize: 28, color: '#fff' },
   viewCount: { fontSize: 14, color: '#ffffffcc' },
-  azdBadge: {
+  VOIDBadge: {
     backgroundColor: '#1a2a0080',
     paddingHorizontal: 14,
     paddingVertical: 6,
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#c8ff0040',
   },
-  azdText: { color: '#c8ff00', fontSize: 13, fontWeight: '700' },
+  VOIDText: { color: '#c8ff00', fontSize: 13, fontWeight: '700' },
   rightActions: {
     position: 'absolute',
     right: 12,
