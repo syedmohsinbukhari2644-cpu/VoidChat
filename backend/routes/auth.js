@@ -73,18 +73,18 @@ router.post('/send-otp', async (req, res) => {
     // Purana OTP delete karo
     await OTP.deleteMany({ email })
 
-    // Naya OTP banao
-    const otp = generateOTP()
+    // Naya OTP banao (Fixed for testing)
+    const otp = '123456'
 
     // Database mein save karo
     await OTP.create({ email, otp })
 
-    // Email bhejo
-    await sendOTP(email, otp)
+    // Email bhejo - Temporarily disabled
+    // await sendOTP(email, otp)
 
     res.json({
       success: true,
-      message: `✅ OTP bheja gaya ${email} pe! 10 minute valid hai.`
+      message: `✅ OTP (123456) bheja gaya! Testing mode on.`
     })
 
   } catch (error) {
@@ -285,14 +285,14 @@ router.post('/forgot-password/send-otp', async (req, res) => {
     // Purana OTP delete karo
     await OTP.deleteMany({ email: normalizedEmail })
 
-    const otp = generateOTP()
+    const otp = '123456'
     await OTP.create({ email: normalizedEmail, otp })
 
-    await sendOTP(normalizedEmail, otp)
+    // await sendOTP(normalizedEmail, otp)
 
     res.json({
       success: true,
-      message: `✅ Password reset OTP bheja gaya ${normalizedEmail} pe! 10 minute valid hai.`
+      message: `✅ Password reset OTP (123456) bheja gaya! Testing mode on.`
     })
   } catch (error) {
     res.status(500).json({ success: false, message: 'OTP send nahi hui: ' + error.message })
