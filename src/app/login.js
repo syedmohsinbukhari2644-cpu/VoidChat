@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, SafeAreaView, StatusBar, Alert
 } from 'react-native'
-import { loginUser, registerUser, setToken } from './api'
+import { loginUser, registerUser, setToken, sendOtp, verifyOtp } from './api'
 
 // ─── Design Tokens ────────────────────────────────────────────
 const C = {
@@ -34,16 +34,11 @@ export default function LoginScreen({ onLogin }) {
     if (!email) { Alert.alert('Error', 'Please enter your email!'); return }
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:3000/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      })
-      const data = await res.json()
-      if (data.success) { Alert.alert('✅', data.message); setStep('verifyOTP') }
-      else Alert.alert('Error', data.message)
+      const response = await sendOtp({ email })
+      if (response.data.success) { Alert.alert('✅', response.data.message); setStep('verifyOTP') }
+      else Alert.alert('Error', response.data.message)
     } catch (e) {
-      Alert.alert('Error', 'Unable to connect to server!')
+      Alert.alert('Error', e.response?.data?.message || 'Unable to connect to server!')
     }
     setLoading(false)
   }
@@ -55,16 +50,11 @@ export default function LoginScreen({ onLogin }) {
     }
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:3000/api/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp }),
-      })
-      const data = await res.json()
-      if (data.success) { Alert.alert('✅', 'Email verified successfully!'); setStep('register') }
-      else Alert.alert('Error', data.message)
+      const response = await verifyOtp({ email, otp })
+      if (response.data.success) { Alert.alert('✅', 'Email verified successfully!'); setStep('register') }
+      else Alert.alert('Error', response.data.message)
     } catch (e) {
-      Alert.alert('Error', 'Server error!')
+      Alert.alert('Error', e.response?.data?.message || 'Server error!')
     }
     setLoading(false)
   }
