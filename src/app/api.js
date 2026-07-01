@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // Backend server config
 const API = axios.create({
-  baseURL: 'https://voidchat-production.up.railway.app/api',
+  baseURL: 'https://void-chat-hchu.vercel.app/api',
   timeout: 10000,
 })
 
