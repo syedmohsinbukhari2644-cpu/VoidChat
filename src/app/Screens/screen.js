@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal
 } from 'react-native'
+import { RTCView } from 'react-native-webrtc'
 import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
+import webrtcService from '../../utils/webrtcService'
 
 const mockMessages = [
   {
@@ -44,6 +46,12 @@ export default function ChatScreen({ contact, onBack }) {
   const [isMuted, setIsMuted] = useState(false)
   const [isSpeaker, setIsSpeaker] = useState(false)
   const [callDuration, setCallDuration] = useState(0)
+
+  // ── WebRTC Real Call State ────────────────────────────────────
+  const [localStream, setLocalStream] = useState(null)
+  const [remoteStream, setRemoteStream] = useState(null)
+  const [incomingCall, setIncomingCall] = useState(null) // { from, fromName, offer, callType }
+  const [callStatus, setCallStatus] = useState('idle') // idle | calling | ringing | connected | ended
   
   // Permission System
   const [otherUserPermissions, setOtherUserPermissions] = useState({
@@ -93,16 +101,70 @@ export default function ChatScreen({ contact, onBack }) {
     return filterStyles[filter] || {}
   }
 
-  // Call timer
+  // ── WebRTC Service Setup ────────────────────────────────────
+  useEffect(() => {
+    // contact?.userId real user ID hoga (e.g. MongoDB _id)
+    const myUserId = contact?.myUserId || 'guest-' + Date.now()
+
+    webrtcService.connect(myUserId, contact?.myUsername || '')
+
+    // Incoming call aaye toh
+    webrtcService.onIncomingCall = ({ from, fromName, offer, callType: ct }) => {
+      setIncomingCall({ from, fromName, offer, callType: ct })
+      setCallStatus('ringing')
+    }
+
+    // Call connected
+    webrtcService.onCallAccepted = () => {
+      setCallStatus('connected')
+    }
+
+    // Remote video stream aaya
+    webrtcService.onRemoteStream = (stream) => {
+      setRemoteStream(stream)
+    }
+
+    // Dusri taraf se reject
+    webrtcService.onCallRejected = () => {
+      Alert.alert('📵 Call Rejected', `${contact?.name} ne call reject kar diya`)
+      setOnCall(false)
+      setLocalStream(null)
+      setRemoteStream(null)
+      setCallStatus('idle')
+    }
+
+    // Call khatam
+    webrtcService.onCallEnded = () => {
+      setOnCall(false)
+      setLocalStream(null)
+      setRemoteStream(null)
+      setIncomingCall(null)
+      setCallStatus('idle')
+      setCallDuration(0)
+    }
+
+    // Dusra user offline
+    webrtcService.onCallUnavailable = () => {
+      Alert.alert('📵 Unavailable', `${contact?.name} abhi available nahi`)
+      setOnCall(false)
+      setCallStatus('idle')
+    }
+
+    return () => {
+      webrtcService.disconnect()
+    }
+  }, [])
+
+  // ── Call Timer ───────────────────────────────────────────────
   useEffect(() => {
     let interval
-    if (onCall) {
+    if (onCall && callStatus === 'connected') {
       interval = setInterval(() => {
         setCallDuration(prev => prev + 1)
       }, 1000)
     }
     return () => clearInterval(interval)
-  }, [onCall])
+  }, [onCall, callStatus])
 
   const formatCallDuration = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -138,32 +200,92 @@ export default function ChatScreen({ contact, onBack }) {
     )
   }
 
-  const startVoiceCall = () => {
-    setOnCall(true)
-    setCallType('voice')
-    setCallDuration(0)
-    setShowVCMenu(false)
-    setIsMuted(false)
-    setIsSpeaker(false)
-    Alert.alert('🔐 Voice Call', 'Call started - Recording blocked automatically')
+  // ── Real Voice Call ──────────────────────────────────────────
+  const startVoiceCall = async () => {
+    try {
+      setShowVCMenu(false)
+      setCallStatus('calling')
+      const stream = await webrtcService.startCall(
+        contact?.userId || contact?.id,
+        'voice',
+        contact?.myUsername || ''
+      )
+      setLocalStream(stream)
+      setOnCall(true)
+      setCallType('voice')
+      setCallDuration(0)
+      setIsMuted(false)
+    } catch (err) {
+      Alert.alert('❌ Error', 'Mic permission chahiye call ke liye!')
+      setCallStatus('idle')
+    }
   }
 
-  const startVideoCall = () => {
-    setOnCall(true)
-    setCallType('video')
-    setCallDuration(0)
-    setShowVCMenu(false)
-    setIsMuted(false)
-    setIsSpeaker(false)
-    Alert.alert('🔐 Video Call', 'Call started - Recording blocked automatically')
+  // ── Real Video Call ──────────────────────────────────────────
+  const startVideoCall = async () => {
+    try {
+      setShowVCMenu(false)
+      setCallStatus('calling')
+      const stream = await webrtcService.startCall(
+        contact?.userId || contact?.id,
+        'video',
+        contact?.myUsername || ''
+      )
+      setLocalStream(stream)
+      setOnCall(true)
+      setCallType('video')
+      setCallDuration(0)
+      setIsMuted(false)
+    } catch (err) {
+      Alert.alert('❌ Error', 'Camera/Mic permission chahiye call ke liye!')
+      setCallStatus('idle')
+    }
   }
 
+  // ── Answer Incoming Call ─────────────────────────────────────
+  const answerIncomingCall = async () => {
+    if (!incomingCall) return
+    try {
+      const stream = await webrtcService.answerCall(
+        incomingCall.from,
+        incomingCall.offer,
+        incomingCall.callType
+      )
+      setLocalStream(stream)
+      setOnCall(true)
+      setCallType(incomingCall.callType)
+      setCallDuration(0)
+      setIncomingCall(null)
+      setCallStatus('connected')
+    } catch (err) {
+      Alert.alert('❌ Error', 'Call answer mein masla aaya')
+      setCallStatus('idle')
+    }
+  }
+
+  // ── Reject Incoming Call ─────────────────────────────────────
+  const rejectIncomingCall = () => {
+    if (!incomingCall) return
+    webrtcService.rejectCall(incomingCall.from)
+    setIncomingCall(null)
+    setCallStatus('idle')
+  }
+
+  // ── Toggle Mute (Real) ───────────────────────────────────────
   const toggleMute = () => {
-    setIsMuted(!isMuted)
+    const nowMuted = webrtcService.toggleMute()
+    setIsMuted(nowMuted)
   }
 
+  // ── Toggle Speaker ───────────────────────────────────────────
   const toggleSpeaker = () => {
-    setIsSpeaker(!isSpeaker)
+    setIsSpeaker(prev => !prev)
+    // Platform speaker toggle (RN InCallManager se hota, optional)
+  }
+
+  // ── Switch Camera ────────────────────────────────────────────
+  const switchCamera = () => {
+    webrtcService.switchCamera()
   }
 
   // Camera Roll Functions
@@ -362,13 +484,18 @@ export default function ChatScreen({ contact, onBack }) {
     ])
   }
 
+  // ── End Call (Real) ──────────────────────────────────────────
   const endCall = () => {
-    Alert.alert('✅ Call Ended', `${callType === 'voice' ? '🎤' : '📹'} Call duration: ${formatCallDuration(callDuration)}`)
+    webrtcService.endCall()
     setOnCall(false)
     setCallType(null)
     setCallDuration(0)
     setIsMuted(false)
     setIsSpeaker(false)
+    setLocalStream(null)
+    setRemoteStream(null)
+    setCallStatus('idle')
+    Alert.alert('✅ Call Khatam', `${callType === 'voice' ? '🎤' : '📹'} Duration: ${formatCallDuration(callDuration)}`)
   }
 
   const requestPermission = (permissionType) => {
@@ -546,32 +673,95 @@ export default function ChatScreen({ contact, onBack }) {
         </View>
       )}
 
-      {/* On Call Status - Silent, no UI indicator */}
-      {onCall && null}
+      {/* ── Incoming Call Modal ───────────────────────────────── */}
+      <Modal visible={!!incomingCall} transparent animationType="slide">
+        <View style={styles.incomingCallModal}>
+          <View style={styles.incomingCallCard}>
+            <View style={styles.callAvatar}>
+              <Text style={styles.callAvatarText}>
+                {incomingCall?.fromName?.[0] || '?'}
+              </Text>
+            </View>
+            <Text style={styles.incomingCallName}>
+              {incomingCall?.fromName || 'Unknown'}
+            </Text>
+            <Text style={styles.incomingCallType}>
+              {incomingCall?.callType === 'video' ? '📹 Video Call aaya!' : '🎤 Voice Call aaya!'}
+            </Text>
+            <View style={styles.incomingCallBtns}>
+              <TouchableOpacity
+                style={styles.rejectCallBtn}
+                onPress={rejectIncomingCall}
+              >
+                <Text style={styles.rejectCallIcon}>📵</Text>
+                <Text style={styles.rejectCallText}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.answerCallBtn}
+                onPress={answerIncomingCall}
+              >
+                <Text style={styles.answerCallIcon}>📞</Text>
+                <Text style={styles.answerCallText}>Answer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
-      {/* Live Call Interface - Only visible during call */}
+      {/* ── Live Call Interface ───────────────────────────────── */}
       {onCall && (
         <View style={styles.callOverlay}>
-          <View style={styles.callContainer}>
-            {/* Avatar & Info */}
-            <View style={styles.callInfo}>
-              <View style={styles.callAvatar}>
-                <Text style={styles.callAvatarText}>
-                  {contact?.name?.[0] || 'Z'}
-                </Text>
-              </View>
-              <View style={styles.callDetails}>
-                <Text style={styles.callName}>{contact?.name || 'Zara 💑'}</Text>
-                <Text style={styles.callType}>
-                  {callType === 'voice' ? '🎤 Voice Call' : '📹 Video Call'}
-                </Text>
-                <Text style={styles.callDuration}>{formatCallDuration(callDuration)}</Text>
-              </View>
+
+          {/* Video Streams (video call only) */}
+          {callType === 'video' && (
+            <View style={styles.videoContainer}>
+              {remoteStream && (
+                <RTCView
+                  streamURL={remoteStream.toURL()}
+                  style={styles.remoteVideo}
+                  objectFit="cover"
+                  mirror={false}
+                />
+              )}
+              {localStream && (
+                <RTCView
+                  streamURL={localStream.toURL()}
+                  style={styles.localVideo}
+                  objectFit="cover"
+                  mirror={true}
+                />
+              )}
             </View>
+          )}
+
+          <View style={styles.callContainer}>
+            {/* Avatar & Info (voice call ya connecting state) */}
+            {(callType === 'voice' || callStatus === 'calling') && (
+              <View style={styles.callInfo}>
+                <View style={styles.callAvatar}>
+                  <Text style={styles.callAvatarText}>
+                    {contact?.name?.[0] || 'Z'}
+                  </Text>
+                </View>
+                <View style={styles.callDetails}>
+                  <Text style={styles.callName}>{contact?.name || 'Zara 💑'}</Text>
+                  <Text style={styles.callType}>
+                    {callStatus === 'calling'
+                      ? '⏳ Connecting...'
+                      : callType === 'voice'
+                        ? '🎤 Voice Call'
+                        : '📹 Video Call'}
+                  </Text>
+                  <Text style={styles.callDuration}>
+                    {callStatus === 'connected' ? formatCallDuration(callDuration) : ''}
+                  </Text>
+                </View>
+              </View>
+            )}
 
             {/* Call Controls */}
             <View style={styles.callControls}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.callBtn, isMuted && styles.callBtnActive]}
                 onPress={toggleMute}
               >
@@ -579,8 +769,18 @@ export default function ChatScreen({ contact, onBack }) {
                 <Text style={styles.callBtnLabel}>{isMuted ? 'Muted' : 'Mute'}</Text>
               </TouchableOpacity>
 
+              {callType === 'video' && (
+                <TouchableOpacity
+                  style={styles.callBtn}
+                  onPress={switchCamera}
+                >
+                  <Text style={styles.callBtnIcon}>🔄</Text>
+                  <Text style={styles.callBtnLabel}>Flip</Text>
+                </TouchableOpacity>
+              )}
+
               {callType === 'voice' && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.callBtn, isSpeaker && styles.callBtnActive]}
                   onPress={toggleSpeaker}
                 >
@@ -589,7 +789,7 @@ export default function ChatScreen({ contact, onBack }) {
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.callBtn, styles.callBtnEnd]}
                 onPress={endCall}
               >
@@ -1815,5 +2015,116 @@ const styles = StyleSheet.create({
     color: '#ff4d4d',
     fontWeight: '700',
     fontSize: 12,
+  },
+
+  // ── Incoming Call Modal Styles ──────────────────────────────
+  incomingCallModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+
+  incomingCallCard: {
+    backgroundColor: '#0e0e14',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#1e1e2c',
+    padding: 28,
+    alignItems: 'center',
+    width: '90%',
+    gap: 12,
+    shadowColor: '#a855f7',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 30,
+    elevation: 20,
+  },
+
+  incomingCallName: {
+    color: '#f0f0ff',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+
+  incomingCallType: {
+    color: '#6b7280',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+
+  incomingCallBtns: {
+    flexDirection: 'row',
+    gap: 24,
+    marginTop: 8,
+  },
+
+  rejectCallBtn: {
+    backgroundColor: '#3a0a0a',
+    borderWidth: 1,
+    borderColor: '#ff4d4d',
+    borderRadius: 50,
+    width: 70,
+    height: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#ff4d4d',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+  },
+
+  rejectCallIcon: { fontSize: 26 },
+  rejectCallText: { color: '#ff4d4d', fontSize: 10, fontWeight: '700', marginTop: 2 },
+
+  answerCallBtn: {
+    backgroundColor: '#0a2a0a',
+    borderWidth: 1,
+    borderColor: '#4ade80',
+    borderRadius: 50,
+    width: 70,
+    height: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#4ade80',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+  },
+
+  answerCallIcon: { fontSize: 26 },
+  answerCallText: { color: '#4ade80', fontSize: 10, fontWeight: '700', marginTop: 2 },
+
+  // ── Video Call Styles ──────────────────────────────────────
+  videoContainer: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 1,
+  },
+
+  remoteVideo: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#000',
+  },
+
+  localVideo: {
+    position: 'absolute',
+    top: 20,
+    right: 16,
+    width: 100,
+    height: 140,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#a855f7',
+    overflow: 'hidden',
+    zIndex: 10,
+    shadowColor: '#a855f7',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 10,
+    elevation: 10,
   },
 })

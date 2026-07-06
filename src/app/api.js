@@ -6,6 +6,11 @@ const API = axios.create({
   timeout: 10000,
 })
 
+// Socket.io URL (WebRTC signaling ke liye)
+// NOTE: Vercel pe Socket.io nahi chalta — Railway/Render pe deploy karo production mein
+export const SOCKET_URL = 'https://void-chat-hchu.vercel.app'
+
+
 // Token automatically add karo
 export const setToken = (token) => {
   API.defaults.headers.common['Authorization'] = `Bearer ${token}`

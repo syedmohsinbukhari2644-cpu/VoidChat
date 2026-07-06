@@ -1,4 +1,6 @@
 const express = require('express')
+const { createServer } = require('http')
+const { Server } = require('socket.io')
 const dotenv = require('dotenv')
 const connectDB = require('./config/database')
 const authRoutes = require('./routes/auth')
@@ -19,23 +21,105 @@ const rateLimit = require('express-rate-limit')
 
 const app = express()
 
-// Security: Enable CORS properly
+// ── HTTP server + Socket.io ─────────────────────────────────────
+const httpServer = createServer(app)
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
+})
+
+// Online users: { userId: socketId }
+const onlineUsers = {}
+
+io.on('connection', (socket) => {
+  console.log('🔌 Socket connected:', socket.id)
+
+  // ── User online register karo ──────────────────────────────
+  socket.on('user-online', (userId) => {
+    onlineUsers[userId] = socket.id
+    console.log(`✅ ${userId} online (socket: ${socket.id})`)
+  })
+
+  // ── Call Initiate (Caller → Callee) ───────────────────────
+  socket.on('call-user', ({ to, from, fromName, offer, callType }) => {
+    const receiverSocket = onlineUsers[to]
+    if (receiverSocket) {
+      io.to(receiverSocket).emit('incoming-call', {
+        from,
+        fromName,
+        offer,
+        callType
+      })
+      console.log(`📞 Call: ${from} → ${to} (${callType})`)
+    } else {
+      // Receiver offline hai
+      socket.emit('call-unavailable', { userId: to })
+    }
+  })
+
+  // ── Call Accepted (Callee → Caller) ───────────────────────
+  socket.on('call-accepted', ({ to, answer }) => {
+    const callerSocket = onlineUsers[to]
+    if (callerSocket) {
+      io.to(callerSocket).emit('call-accepted', { answer })
+    }
+  })
+
+  // ── ICE Candidates exchange ────────────────────────────────
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    const targetSocket = onlineUsers[to]
+    if (targetSocket) {
+      io.to(targetSocket).emit('ice-candidate', { candidate })
+    }
+  })
+
+  // ── Call Rejected ──────────────────────────────────────────
+  socket.on('call-rejected', ({ to }) => {
+    const callerSocket = onlineUsers[to]
+    if (callerSocket) {
+      io.to(callerSocket).emit('call-rejected')
+    }
+  })
+
+  // ── Call Ended ────────────────────────────────────────────
+  socket.on('call-ended', ({ to }) => {
+    const targetSocket = onlineUsers[to]
+    if (targetSocket) {
+      io.to(targetSocket).emit('call-ended')
+    }
+  })
+
+  // ── Disconnect ────────────────────────────────────────────
+  socket.on('disconnect', () => {
+    Object.keys(onlineUsers).forEach(userId => {
+      if (onlineUsers[userId] === socket.id) {
+        delete onlineUsers[userId]
+        console.log(`❌ ${userId} offline`)
+      }
+    })
+  })
+})
+
+// ── Security: Enable CORS ──────────────────────────────────────
 app.use(cors())
 
-// Security: Rate limiting to prevent DDoS and Brute Force attacks
+// ── Security: Rate limiting ────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: 'Too many requests from this IP, please try again after 15 minutes',
   standardHeaders: true,
   legacyHeaders: false,
 })
 
-// Apply rate limiting to all /api/ routes
 app.use('/api/', apiLimiter)
-
 app.use(express.json())
 
+// ── REST Routes ───────────────────────────────────────────────
 app.use('/api/auth', authRoutes)
 app.use('/api/posts', postRoutes)
 app.use('/api/messages', messageRoutes)
@@ -52,6 +136,10 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     status: '🔓 Running!',
     message: 'Speak, Write, Live — Without Fear!',
+    features: {
+      webrtc: '✅ Socket.io signaling active',
+      encryption: '✅ AES-256-GCM E2E'
+    },
     apis: [
       '/api/auth',
       '/api/posts',
@@ -66,14 +154,17 @@ app.get('/', (req, res) => {
   })
 })
 
+// ── Start Server ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000
 
-// Only start the server locally if not in a Vercel serverless environment
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     console.log(`
     ╔══════════════════════════════════════╗
     ║      🔓 VOID CHAT Server Running!    ║
+    ║                                      ║
+    ║  HTTP REST:     /api/*               ║
+    ║  Socket.io:     ws://localhost:${PORT}  ║
     ║                                      ║
     ║  Auth:          /api/auth            ║
     ║  Posts:         /api/posts           ║
@@ -85,13 +176,14 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     ║  Users:         /api/users           ║
     ║  Notifications: /api/notifications   ║
     ║                                      ║
-    ║  Status: Ready! ✅                   ║
+    ║  WebRTC:        Socket.io ✅          ║
+    ║  Status:        Ready! ✅            ║
     ╚══════════════════════════════════════╝
     `)
   })
 }
 
-// Export for Vercel Serverless
+// ── Export for Vercel Serverless ──────────────────────────────
+// NOTE: Vercel pe Socket.io work nahi karta (serverless limitation)
+// Production ke liye Railway.app ya Render.com use karo
 module.exports = app
-
-
