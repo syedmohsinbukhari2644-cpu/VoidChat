@@ -1,9 +1,17 @@
 {
   "expo": {
-    "name": "Void Chat",
+    "name": "VOID CHAT",
     "slug": "void-chat",
+    "version": "1.0.0",
     "android": {
       "package": "com.voidchat.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "shortName": "VOID CHAT",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "display": "standalone"
     },
     "extra": {
       "eas": {

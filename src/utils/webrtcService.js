@@ -7,8 +7,8 @@ import {
 import io from 'socket.io-client'
 
 // ── Config ─────────────────────────────────────────────────────
-const SOCKET_URL = 'https://void-chat-hchu.vercel.app'
-// NOTE: Agar locally test kar rahe ho toh: 'http://192.168.x.x:3000'
+const SOCKET_URL = 'https://voidchat-production-5df5.up.railway.app'
+// NOTE: Local test ke liye: 'http://192.168.x.x:3000'
 
 // Google ke free STUN servers
 const ICE_SERVERS = {

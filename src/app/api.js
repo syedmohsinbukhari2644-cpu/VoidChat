@@ -2,13 +2,14 @@ import axios from 'axios'
 
 // Backend server config
 const API = axios.create({
-  baseURL: 'https://void-chat-hchu.vercel.app/api',
+  baseURL: 'https://voidchat-production-5df5.up.railway.app/api',
   timeout: 10000,
 })
 
 // Socket.io URL (WebRTC signaling ke liye)
 // NOTE: Vercel pe Socket.io nahi chalta — Railway/Render pe deploy karo production mein
-export const SOCKET_URL = 'https://void-chat-hchu.vercel.app'
+export const SOCKET_URL = 'https://voidchat-production-5df5.up.railway.app'
+
 
 
 // Token automatically add karo
