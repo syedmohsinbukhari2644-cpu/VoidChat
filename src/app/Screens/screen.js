@@ -34,7 +34,8 @@ const mockMessages = [
   },
 ]
 
-export default function ChatScreen({ contact, onBack }) {
+export default function ChatScreen({ contact, onBack, onViewProfile, blockedUsers }) {
+  const isBlocked = blockedUsers?.includes(contact?.id || contact?.userId)
   const [messages, setMessages] = useState(mockMessages)
   const [input, setInput] = useState('')
   const [streak, setStreak] = useState(47)
@@ -582,7 +583,10 @@ export default function ChatScreen({ contact, onBack }) {
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <View style={styles.contactInfo}>
+        <TouchableOpacity 
+          style={styles.contactInfo}
+          onPress={() => onViewProfile && onViewProfile(contact)}
+        >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
               {contact?.name?.[0] || 'Z'}
@@ -596,7 +600,7 @@ export default function ChatScreen({ contact, onBack }) {
               {onCall ? '🔴 On Call' : '🔐 E2E Encrypted'}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
         
         {/* Privacy Controls */}
         <View style={styles.headerControls}>
@@ -635,8 +639,14 @@ export default function ChatScreen({ contact, onBack }) {
           </TouchableOpacity>
           
           <TouchableOpacity 
-            onPress={() => setShowVCMenu(!showVCMenu)}
-            style={styles.callBtn}
+            onPress={() => {
+              if (isBlocked) {
+                Alert.alert('Blocked', 'Unblock this user to make calls.')
+              } else {
+                setShowVCMenu(!showVCMenu)
+              }
+            }}
+            style={[styles.callBtn, isBlocked && { opacity: 0.4 }]}
           >
             <Text style={styles.callIcon}>{onCall ? '📞' : '☎️'}</Text>
           </TouchableOpacity>
@@ -809,7 +819,7 @@ export default function ChatScreen({ contact, onBack }) {
       </View>
 
       {/* Messages */}
-      <ScrollView style={styles.messages} contentContainerStyle={{ padding: 16, gap: 8 }}>
+      <ScrollView style={styles.messages} contentContainerStyle={{ padding: 16, gap: 8 }} keyboardShouldPersistTaps="handled">
         {messages.map(msg => (
           <View
             key={msg.id}
@@ -1115,47 +1125,55 @@ export default function ChatScreen({ contact, onBack }) {
 
       {/* Input */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.inputArea}>
-          <View style={styles.encIndicator}>
-            <View style={styles.encDot} />
-            <Text style={styles.encText}>
-              {screenshotAllowed ? '📸 Screenshots allowed' : '📵 Screenshots blocked'}
+        {isBlocked ? (
+          <View style={styles.blockedBannerContainer}>
+            <Text style={styles.blockedBannerText}>
+              🚫 You blocked this user. Unblock to resume chat.
             </Text>
           </View>
-          <View style={styles.inputRow}>
-            <TouchableOpacity 
-              style={styles.mediaBtn}
-              onPress={() => setShowMediaMenu(!showMediaMenu)}
-            >
-              <Text style={styles.mediaBtnIcon}>+</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.cameraRollBtn, cameraRoll.length > 0 && styles.cameraRollBtnActive]}
-              onPress={() => setShowCameraRoll(!showCameraRoll)}
-            >
-              <Text style={styles.cameraRollIcon}>📷</Text>
-              {cameraRoll.length > 0 && (
-                <Text style={styles.cameraRollBadge}>{cameraRoll.length}</Text>
-              )}
-            </TouchableOpacity>
-            <TextInput
-              style={styles.input}
-              placeholder="Message likho..."
-              placeholderTextColor="#4b5563"
-              value={input}
-              onChangeText={setInput}
-              multiline
-            />
-            <TouchableOpacity
-              style={[styles.sendBtn, input.trim() && styles.sendBtnActive]}
-              onPress={sendMessage}
-            >
-              <Text style={styles.sendIcon}>➤</Text>
-            </TouchableOpacity>
+        ) : (
+          <View style={styles.inputArea}>
+            <View style={styles.encIndicator}>
+              <View style={styles.encDot} />
+              <Text style={styles.encText}>
+                {screenshotAllowed ? '📸 Screenshots allowed' : '📵 Screenshots blocked'}
+              </Text>
+            </View>
+            <View style={styles.inputRow}>
+              <TouchableOpacity 
+                style={styles.mediaBtn}
+                onPress={() => setShowMediaMenu(!showMediaMenu)}
+              >
+                <Text style={styles.mediaBtnIcon}>+</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.cameraRollBtn, cameraRoll.length > 0 && styles.cameraRollBtnActive]}
+                onPress={() => setShowCameraRoll(!showCameraRoll)}
+              >
+                <Text style={styles.cameraRollIcon}>📷</Text>
+                {cameraRoll.length > 0 && (
+                  <Text style={styles.cameraRollBadge}>{cameraRoll.length}</Text>
+                )}
+              </TouchableOpacity>
+              <TextInput
+                style={styles.input}
+                placeholder="Message likho..."
+                placeholderTextColor="#4b5563"
+                value={input}
+                onChangeText={setInput}
+                multiline
+              />
+              <TouchableOpacity
+                style={[styles.sendBtn, input.trim() && styles.sendBtnActive]}
+                onPress={sendMessage}
+              >
+                <Text style={styles.sendIcon}>➤</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
@@ -1414,6 +1432,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',
     backgroundColor: '#0a0a0a',
+  },
+  blockedBannerContainer: {
+    padding: 20,
+    backgroundColor: '#160a0a',
+    borderTopWidth: 1,
+    borderTopColor: '#ef444430',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blockedBannerText: {
+    color: '#f87171',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   encIndicator: {
     flexDirection: 'row',

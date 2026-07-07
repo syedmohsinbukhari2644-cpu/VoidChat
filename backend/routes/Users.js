@@ -16,14 +16,15 @@ router.get('/me', protect, async (req, res) => {
       user: {
         username: user.username,
         bio: user.bio,
-        VOIDBalance: user.VOIDBalance,
-        pkrValue: Math.floor(user.VOIDBalance / 5),
+        VOIDBalance: user.voidBalance,
+        pkrValue: Math.floor(user.voidBalance / 5),
         streakDays: user.streakDays,
         followers: user.followers.length,
         following: user.following.length,
         totalRefers: user.totalRefers,
         referCode: user.referCode,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        blockedUsers: user.blockedUsers || []
       }
     })
   } catch (error) {
@@ -116,10 +117,59 @@ router.get('/:username', protect, async (req, res) => {
         bio: user.bio,
         followers: user.followers.length,
         following: user.following.length,
-        VOIDBalance: user.VOIDBalance,
+        VOIDBalance: user.voidBalance,
         posts
       }
     })
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message })
+  }
+})
+
+// Kisi ko block/unblock karo
+router.put('/block/:id', protect, async (req, res) => {
+  try {
+    const userToBlock = await User.findById(req.params.id)
+    const currentUser = await User.findById(req.user._id)
+
+    if (!userToBlock) {
+      return res.status(404).json({
+        success: false,
+        message: 'User nahi mila!'
+      })
+    }
+
+    if (userToBlock._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aap khud ko block nahi kar sakte!'
+      })
+    }
+
+    const alreadyBlocked = currentUser.blockedUsers.includes(req.params.id)
+
+    if (alreadyBlocked) {
+      // Unblock
+      await User.findByIdAndUpdate(req.user._id, {
+        $pull: { blockedUsers: req.params.id }
+      })
+      return res.json({ success: true, message: '🔓 User unblock ho gaya!', blocked: false })
+    }
+
+    // Block
+    await User.findByIdAndUpdate(req.user._id, {
+      $push: { blockedUsers: req.params.id }
+    })
+    
+    // Auto-unfollow both ways
+    await User.findByIdAndUpdate(req.user._id, {
+      $pull: { following: req.params.id, followers: req.params.id }
+    })
+    await User.findByIdAndUpdate(req.params.id, {
+      $pull: { following: req.user._id, followers: req.user._id }
+    })
+
+    res.json({ success: true, message: '🚫 User block ho gaya!', blocked: true })
   } catch (error) {
     res.status(500).json({ success: false, message: error.message })
   }

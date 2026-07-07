@@ -9,7 +9,10 @@ const { protect } = require('../middleware/auth')
 // Saare posts dekho (Feed)
 router.get('/', protect, async (req, res) => {
   try {
-    const posts = await Post.find()
+    const currentUser = await User.findById(req.user._id)
+    const blockedList = currentUser.blockedUsers || []
+
+    const posts = await Post.find({ user: { $nin: blockedList } })
       .populate('user', 'username isAnonymous')
       .sort({ createdAt: -1 })
       .limit(20)

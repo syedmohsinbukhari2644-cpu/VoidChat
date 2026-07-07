@@ -62,7 +62,7 @@ router.post('/', protect, async (req, res) => {
 
     // 80 VOID do reel upload pe
     await User.findByIdAndUpdate(req.user._id, {
-      $inc: { VOIDBalance: 80 }
+      $inc: { voidBalance: 80 }
     })
 
     await VOID.create({
@@ -118,7 +118,7 @@ router.put('/:id/like', protect, async (req, res) => {
 
     // Creator ko VOID do
     await User.findByIdAndUpdate(reel.user, {
-      $inc: { VOIDBalance: 2 }
+      $inc: { voidBalance: 2 }
     })
 
     res.json({
@@ -150,7 +150,7 @@ router.put('/:id/view', protect, async (req, res) => {
       if (VOIDDiff > 0) {
         reel.VOIDEarned = newVOID
         await User.findByIdAndUpdate(reel.user, {
-          $inc: { VOIDBalance: VOIDDiff }
+          $inc: { voidBalance: VOIDDiff }
         })
       }
     }

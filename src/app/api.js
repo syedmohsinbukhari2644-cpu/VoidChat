@@ -63,5 +63,9 @@ export const useReferCode = (data) => API.post('/refer/use', data)
 export const getReels = () => API.get('/reels')
 export const uploadReel = (data) => API.post('/reels', data)
 
+// User Block APIs
+export const blockUser = (userId) => API.put(`/users/block/${userId}`)
+export const getMe = () => API.get('/users/me')
+
 export default API
 

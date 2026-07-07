@@ -17,6 +17,11 @@
       "eas": {
         "projectId": "44be8895-6567-4eb3-a787-4fbe60a20ebd"
       }
-    }
+    },
+    "plugins": [
+      "expo-image",
+      "expo-router",
+      "expo-splash-screen"
+    ]
   }
 }

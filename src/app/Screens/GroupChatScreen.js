@@ -291,7 +291,7 @@ export default function GroupChatScreen({ group, onBack }) {
       )}
 
       {/* Messages */}
-      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {loadingMessages && (
           <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
         )}
@@ -400,7 +400,7 @@ export default function GroupChatScreen({ group, onBack }) {
       )}
 
       {/* Input */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.inputArea}>
           <View style={styles.inputRow}>
             <TouchableOpacity 

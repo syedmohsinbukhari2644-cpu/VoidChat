@@ -16,20 +16,21 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase()
 
 // Helper: OTP validate & attempts increment
 const validateOtp = async ({ email, otp }) => {
-  const otpRecord = await OTP.findOne({ email })
+  const normalizedEmail = normalizeEmail(email)
+  const otpRecord = await OTP.findOne({ email: normalizedEmail })
   if (!otpRecord) {
     return { ok: false, status: 400, message: '❌ Pehle OTP mangwao!' }
   }
 
   // Expire check
   if (new Date() > otpRecord.expiresAt) {
-    await OTP.deleteMany({ email })
+    await OTP.deleteMany({ email: normalizedEmail })
     return { ok: false, status: 400, message: '❌ OTP expire ho gaya! Dobara mangwao.' }
   }
 
   // Attempts check — 5 se zyada galat = block
   if (otpRecord.attempts >= 5) {
-    await OTP.deleteMany({ email })
+    await OTP.deleteMany({ email: normalizedEmail })
     return { ok: false, status: 400, message: '❌ Zyada galat attempts! Dobara OTP mangwao.' }
   }
 
@@ -71,16 +72,16 @@ router.post('/send-otp', async (req, res) => {
     }
 
     // Purana OTP delete karo
-    await OTP.deleteMany({ email })
+    await OTP.deleteMany({ email: normalizedEmail })
 
     // Naya OTP banao (Fixed for testing)
     const otp = '123456'
 
     // Database mein save karo
-    await OTP.create({ email, otp })
+    await OTP.create({ email: normalizedEmail, otp })
 
     // Email bhejo - Temporarily disabled
-    // await sendOTP(email, otp)
+    // await sendOTP(normalizedEmail, otp)
 
     res.json({
       success: true,
@@ -99,8 +100,9 @@ router.post('/send-otp', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
-    const otpRecord = await OTP.findOne({ email })
+    const otpRecord = await OTP.findOne({ email: normalizedEmail })
 
     if (!otpRecord) {
       return res.status(400).json({
@@ -111,7 +113,7 @@ router.post('/verify-otp', async (req, res) => {
 
     // Expire check
     if (new Date() > otpRecord.expiresAt) {
-      await OTP.deleteMany({ email })
+      await OTP.deleteMany({ email: normalizedEmail })
       return res.status(400).json({
         success: false,
         message: '❌ OTP expire ho gaya! Dobara mangwao.'
@@ -120,7 +122,7 @@ router.post('/verify-otp', async (req, res) => {
 
     // Attempts check — 5 se zyada galat = block
     if (otpRecord.attempts >= 5) {
-      await OTP.deleteMany({ email })
+      await OTP.deleteMany({ email: normalizedEmail })
       return res.status(400).json({
         success: false,
         message: '❌ Zyada galat attempts! Dobara OTP mangwao.'
@@ -158,9 +160,10 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
     // OTP verified check
-    const otpRecord = await OTP.findOne({ email, verified: true })
+    const otpRecord = await OTP.findOne({ email: normalizedEmail, verified: true })
     if (!otpRecord) {
       return res.status(400).json({
         success: false,
@@ -180,13 +183,13 @@ router.post('/register', async (req, res) => {
     // User banao
     const user = await User.create({
       username,
-      email,
+      email: normalizedEmail,
       password,
       isEmailVerified: true
     })
 
     // OTP delete karo
-    await OTP.deleteMany({ email })
+    await OTP.deleteMany({ email: normalizedEmail })
 
     // Token banao
     const token = jwt.sign(
@@ -199,7 +202,7 @@ router.post('/register', async (req, res) => {
       success: true,
       message: `🔓 VOID CHAT mein khush aamdeed ${username}! +200 VOID mile!`,
       token,
-      VOIDBalance: user.VOIDBalance
+      VOIDBalance: user.voidBalance
     })
 
   } catch (error) {
@@ -214,8 +217,9 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: normalizedEmail })
 
     if (!user) {
       return res.status(401).json({
@@ -250,7 +254,7 @@ router.post('/login', async (req, res) => {
       success: true,
       message: `🔓 Welcome back ${user.username}!`,
       token,
-      VOIDBalance: user.VOIDBalance,
+      VOIDBalance: user.voidBalance,
       streakDays: user.streakDays
     })
 

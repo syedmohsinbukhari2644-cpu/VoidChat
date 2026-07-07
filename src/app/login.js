@@ -149,7 +149,7 @@ export default function LoginScreen({ onLogin }) {
 
             {/* Form fields */}
             <View style={styles.form}>
-              <View style={inp('email')}>
+              <View style={inp('email')} collapsable={false}>
                 <Text style={styles.inputEmoji}>📧</Text>
                 <TextInput
                   style={styles.inputField}
@@ -165,7 +165,7 @@ export default function LoginScreen({ onLogin }) {
               </View>
 
               {isLogin && (
-                <View style={inp('pw')}>
+                <View style={inp('pw')} collapsable={false}>
                   <Text style={styles.inputEmoji}>🔑</Text>
                   <TextInput
                     style={styles.inputField}
@@ -220,7 +220,7 @@ export default function LoginScreen({ onLogin }) {
               <Text style={{ fontSize: 22 }}>🔒</Text>
             </View>
 
-            <View style={[inp('otp'), { justifyContent: 'center' }]}>
+            <View style={[inp('otp'), { justifyContent: 'center' }]} collapsable={false}>
               <TextInput
                 style={[styles.inputField, styles.otpField]}
                 placeholder="000000"
@@ -262,7 +262,7 @@ export default function LoginScreen({ onLogin }) {
               </View>
             </View>
 
-            <View style={inp('uname')}>
+            <View style={inp('uname')} collapsable={false}>
               <Text style={styles.inputEmoji}>👤</Text>
               <TextInput
                 style={styles.inputField}
@@ -276,7 +276,7 @@ export default function LoginScreen({ onLogin }) {
               />
             </View>
 
-            <View style={inp('rpw')}>
+            <View style={inp('rpw')} collapsable={false}>
               <Text style={styles.inputEmoji}>🔑</Text>
               <TextInput
                 style={styles.inputField}

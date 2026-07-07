@@ -24,6 +24,10 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
   voidBalance: {
     type: Number,
     default: 200
@@ -60,6 +64,10 @@ const UserSchema = new mongoose.Schema({
     ref: 'User'
   }],
   following: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  blockedUsers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],

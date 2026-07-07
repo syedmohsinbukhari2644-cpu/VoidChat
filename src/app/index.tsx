@@ -8,7 +8,7 @@ import ReelsScreen from './Screens/ReelsScreen'
 import ChatScreen from './Screens/screen'
 import NotificationsScreen from './Screens/NotificationsScreen'
 import ReferScreen from './Screens/ReferScreen'
-import { setToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode } from './api'
+import { setToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe } from './api'
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -24,14 +24,27 @@ export default function App() {
   const [referCode, setReferCode] = useState('')
   const [posting, setPosting] = useState(false)
 
+  // App Mode & Blocking States
+  const [appMode, setAppMode] = useState('social')
+  const [currentUserBlockedList, setCurrentUserBlockedList] = useState([])
+  const [selectedUserProfile, setSelectedUserProfile] = useState(null)
+
   useEffect(() => {
     if (isLoggedIn) {
       loadFeed()
       loadBalance()
       claimDailyBonus()
       loadReferCode()
+      loadBlockedUsers()
     }
   }, [isLoggedIn])
+
+  const loadBlockedUsers = async () => {
+    try {
+      const res = await getMe()
+      setCurrentUserBlockedList(res.data.user.blockedUsers || [])
+    } catch (e) {}
+  }
 
   const loadFeed = async () => {
     try {
@@ -87,6 +100,44 @@ export default function App() {
     setPosting(false)
   }
 
+  const handleModeChange = (mode) => {
+    setAppMode(mode)
+    if (mode === 'chat') {
+      if (activeTab === 'feed' || activeTab === 'reels') {
+        setActiveTab('inbox')
+      }
+    }
+  }
+
+  const handleToggleBlock = async (userId, username) => {
+    if (!userId) return
+    const isCurrentlyBlocked = currentUserBlockedList.includes(userId)
+    const actionLabel = isCurrentlyBlocked ? 'unblock' : 'block'
+    
+    Alert.alert(
+      `${isCurrentlyBlocked ? 'Unblock' : 'Block'} User`,
+      `Are you sure you want to ${actionLabel} @${username}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isCurrentlyBlocked ? 'Unblock' : 'Block',
+          style: isCurrentlyBlocked ? 'default' : 'destructive',
+          onPress: async () => {
+            try {
+              const res = await blockUser(userId)
+              Alert.alert('Success', res.data.message)
+              setSelectedUserProfile(null)
+              loadBlockedUsers()
+              loadFeed()
+            } catch (err) {
+              Alert.alert('Error', err.response?.data?.message || 'Failed to toggle block status')
+            }
+          }
+        }
+      ]
+    )
+  }
+
   const handleLogin = (token, balance) => {
     setToken(token)
     setVOIDBalance(balance)
@@ -110,10 +161,29 @@ export default function App() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logo}>VOID CHAT 🔓</Text>
+        <Text style={styles.logo}>VOID 🔓</Text>
+        
+        {/* Modern sliding mode switch */}
+        <View style={styles.modeToggleContainer}>
+          <TouchableOpacity 
+            style={[styles.modeToggleBtn, appMode === 'chat' && styles.modeToggleActive]}
+            onPress={() => handleModeChange('chat')}
+          >
+            <Text style={styles.modeToggleIcon}>💬</Text>
+            {appMode === 'chat' && <Text style={styles.modeToggleText}>Chat</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.modeToggleBtn, appMode === 'social' && styles.modeToggleActive]}
+            onPress={() => handleModeChange('social')}
+          >
+            <Text style={styles.modeToggleIcon}>🌐</Text>
+            {appMode === 'social' && <Text style={styles.modeToggleText}>Social</Text>}
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.headerRight}>
           <View style={styles.VOIDBadge}>
-            <Text style={styles.VOIDText}>⚡ {VOIDBalance} VOID</Text>
+            <Text style={styles.VOIDText}>⚡ {VOIDBalance}</Text>
           </View>
           <TouchableOpacity onPress={() => setShowNotifs(true)}>
             <Text style={styles.notifBtn}>🔔</Text>
@@ -144,21 +214,39 @@ export default function App() {
               posts.map(post => (
                 <View key={post._id} style={styles.post}>
                   <View style={styles.postHeader}>
-                    <View style={[styles.avatar, {
-                      backgroundColor: post.isAnonymous ? '#374151' : '#6366f1'
-                    }]}>
+                    <TouchableOpacity 
+                      style={[styles.avatar, {
+                        backgroundColor: post.isAnonymous ? '#374151' : '#6366f1'
+                      }]}
+                      onPress={() => {
+                        if (post.isAnonymous) {
+                          setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
+                        } else if (post.user) {
+                          setSelectedUserProfile(post.user)
+                        }
+                      }}
+                    >
                       <Text style={styles.avatarText}>
                         {post.isAnonymous ? '?' :
                           post.user?.username?.[0]?.toUpperCase() || 'U'}
                       </Text>
-                    </View>
-                    <View style={styles.postMeta}>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.postMeta}
+                      onPress={() => {
+                        if (post.isAnonymous) {
+                          setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
+                        } else if (post.user) {
+                          setSelectedUserProfile(post.user)
+                        }
+                      }}
+                    >
                       <Text style={styles.username}>
                         {post.isAnonymous ? '🕵️ Anonymous' :
                           `@${post.user?.username}`}
                       </Text>
                       <Text style={styles.postTime}>🔐 Encrypted</Text>
-                    </View>
+                    </TouchableOpacity>
                     <View style={styles.VOIDEarned}>
                       <Text style={styles.VOIDEarnedText}>
                         +{post.VOIDEarned} VOID
@@ -338,7 +426,8 @@ export default function App() {
           { id: 'create', icon: '✦', label: '', special: true },
           { id: 'inbox', icon: '✉', label: 'Inbox' },
           { id: 'wallet', icon: '⚡', label: 'Wallet' },
-        ].map(tab => (
+        ].filter(tab => appMode === 'social' || (tab.id !== 'feed' && tab.id !== 'reels' && tab.id !== 'create'))
+         .map(tab => (
           <TouchableOpacity
             key={tab.id}
             style={[styles.navBtn, tab.special && styles.navSpecial]}
@@ -438,6 +527,83 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
+      {/* User Profile Detail Modal (WhatsApp style) */}
+      <Modal visible={!!selectedUserProfile} animationType="slide" transparent={true}>
+        <View style={styles.profileModalOverlay}>
+          <View style={styles.profileModalContent}>
+            
+            {/* Header */}
+            <View style={styles.profileModalHeader}>
+              <TouchableOpacity onPress={() => setSelectedUserProfile(null)}>
+                <Text style={styles.profileModalClose}>✕ Close</Text>
+              </TouchableOpacity>
+              <Text style={styles.profileModalTitle}>
+                {selectedUserProfile?.isAnonymous ? 'Anonymous Profile' : 'User Profile'}
+              </Text>
+              <View style={{ width: 50 }} />
+            </View>
+
+            {/* Profile Card */}
+            <ScrollView contentContainerStyle={styles.profileModalBody}>
+              <View style={styles.profileModalAvatarContainer}>
+                <View style={[styles.profileModalAvatar, selectedUserProfile?.isAnonymous && { borderColor: '#374151' }]}>
+                  <Text style={[styles.profileModalAvatarText, selectedUserProfile?.isAnonymous && { color: '#6b7280' }]}>
+                    {selectedUserProfile?.isAnonymous ? '?' : (selectedUserProfile?.username?.[0]?.toUpperCase() || selectedUserProfile?.name?.[0]?.toUpperCase() || '?')}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.profileModalUsername}>
+                {selectedUserProfile?.isAnonymous ? '🕵️ Anonymous User' : `@${selectedUserProfile?.username || selectedUserProfile?.name}`}
+              </Text>
+              
+              <Text style={styles.profileModalBio}>
+                {selectedUserProfile?.isAnonymous 
+                  ? "Posts by blocked anonymous users will be hidden from your feed." 
+                  : (selectedUserProfile?.bio || 'No bio yet • Privacy first 🔐')}
+              </Text>
+
+              {/* Stats - Hide if anonymous */}
+              {!selectedUserProfile?.isAnonymous && (
+                <View style={styles.profileModalStats}>
+                  <View style={styles.profileModalStatItem}>
+                    <Text style={styles.profileModalStatValue}>
+                      {selectedUserProfile?.followers?.length || 0}
+                    </Text>
+                    <Text style={styles.profileModalStatLabel}>Followers</Text>
+                  </View>
+                  <View style={styles.profileModalStatItem}>
+                    <Text style={styles.profileModalStatValue}>
+                      {selectedUserProfile?.following?.length || 0}
+                    </Text>
+                    <Text style={styles.profileModalStatLabel}>Following</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={styles.profileModalActions}>
+                <TouchableOpacity
+                  style={[
+                    styles.profileModalBlockBtn,
+                    currentUserBlockedList.includes(selectedUserProfile?._id || selectedUserProfile?.id) && styles.profileModalUnblockBtn
+                  ]}
+                  onPress={() => handleToggleBlock(selectedUserProfile?._id || selectedUserProfile?.id, selectedUserProfile?.username || selectedUserProfile?.name)}
+                >
+                  <Text style={[
+                    styles.profileModalBlockBtnText,
+                    currentUserBlockedList.includes(selectedUserProfile?._id || selectedUserProfile?.id) && { color: '#34d399' }
+                  ]}>
+                    {currentUserBlockedList.includes(selectedUserProfile?._id || selectedUserProfile?.id) ? '🔓 Unblock User' : '🚫 Block User'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+
+          </View>
+        </View>
+      </Modal>
+
       {/* Chat Modal */}
       <Modal
         visible={!!showChat}
@@ -446,6 +612,8 @@ export default function App() {
         <ChatScreen
           contact={showChat}
           onBack={() => setShowChat(false)}
+          onViewProfile={(profile) => setSelectedUserProfile(profile)}
+          blockedUsers={currentUserBlockedList}
         />
       </Modal>
 
@@ -706,4 +874,157 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#1e1e2c',
   },
   suggestionText: { color: '#8b8ba7', fontSize: 13 },
+
+  // ── Mode Toggle Styles ───────────────────────────────────────
+  modeToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#0e0e14',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1e1e2c',
+    padding: 2,
+    alignItems: 'center',
+  },
+  modeToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 18,
+    gap: 4,
+  },
+  modeToggleActive: {
+    backgroundColor: '#c8ff00',
+  },
+  modeToggleIcon: {
+    fontSize: 14,
+  },
+  modeToggleText: {
+    color: '#050608',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  // ── Profile Detail Modal Styles ──────────────────────────────
+  profileModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  profileModalContent: {
+    backgroundColor: '#0a0a0f',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    minHeight: '60%',
+    maxHeight: '85%',
+    borderWidth: 1,
+    borderColor: '#1f1f2e',
+    overflow: 'hidden',
+  },
+  profileModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f2e',
+  },
+  profileModalClose: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  profileModalTitle: {
+    color: '#f0f0ff',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  profileModalBody: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  profileModalAvatarContainer: {
+    marginBottom: 20,
+    shadowColor: '#c8ff00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    elevation: 8,
+  },
+  profileModalAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#1c1c28',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#c8ff0050',
+  },
+  profileModalAvatarText: {
+    fontSize: 42,
+    fontWeight: '900',
+    color: '#c8ff00',
+  },
+  profileModalUsername: {
+    color: '#f0f0ff',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  profileModalBio: {
+    color: '#9ca3af',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+    paddingHorizontal: 16,
+  },
+  profileModalStats: {
+    flexDirection: 'row',
+    gap: 40,
+    marginBottom: 32,
+    backgroundColor: '#0e0e16',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1e1e2e',
+  },
+  profileModalStatItem: {
+    alignItems: 'center',
+  },
+  profileModalStatValue: {
+    color: '#c8ff00',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  profileModalStatLabel: {
+    color: '#6b7280',
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  profileModalActions: {
+    width: '100%',
+    marginTop: 10,
+  },
+  profileModalBlockBtn: {
+    width: '100%',
+    paddingVertical: 15,
+    backgroundColor: '#ef444415',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ef444460',
+    alignItems: 'center',
+  },
+  profileModalUnblockBtn: {
+    backgroundColor: '#10b98115',
+    borderColor: '#10b98160',
+  },
+  profileModalBlockBtnText: {
+    color: '#f87171',
+    fontSize: 15,
+    fontWeight: '800',
+  },
 })

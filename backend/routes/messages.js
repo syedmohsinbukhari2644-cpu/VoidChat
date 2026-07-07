@@ -46,6 +46,19 @@ router.post('/send', protect, async (req, res) => {
   try {
     const { receiverId, content } = req.body
 
+    const receiver = await User.findById(receiverId)
+    if (!receiver) {
+      return res.status(404).json({ success: false, message: 'User nahi mila!' })
+    }
+
+    const currentUser = await User.findById(req.user._id)
+    if (currentUser.blockedUsers.includes(receiverId)) {
+      return res.status(400).json({ success: false, message: 'Aapne is user ko block kiya hua hai!' })
+    }
+    if (receiver.blockedUsers.includes(req.user._id)) {
+      return res.status(400).json({ success: false, message: 'Is user ne aapko block kiya hua hai!' })
+    }
+
     // E2E Encrypt karo
     const { encryptedContent, iv } = encryptMessage(content)
 
@@ -101,7 +114,7 @@ router.post('/send', protect, async (req, res) => {
     // Streak VOID bonus do
     const streakVOID = Math.floor(50 * streak.bonusMultiplier)
     await User.findByIdAndUpdate(req.user._id, {
-      $inc: { VOIDBalance: streakVOID }
+      $inc: { voidBalance: streakVOID }
     })
 
     await VOID.create({
