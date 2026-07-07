@@ -26,12 +26,15 @@ router.get('/', protect, async (req, res) => {
 // Nai post likho
 router.post('/', protect, async (req, res) => {
   try {
-    const { content, isAnonymous } = req.body
+    const { content, isAnonymous, postType, mediaUrl, linkUrl } = req.body
 
     const post = await Post.create({
       user: req.user._id,
       content,
       isAnonymous: isAnonymous || false,
+      postType: postType || 'text',
+      mediaUrl: mediaUrl || '',
+      linkUrl: linkUrl || '',
       voidEarned: 40
     })
 

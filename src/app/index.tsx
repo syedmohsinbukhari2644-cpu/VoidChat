@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, SafeAreaView, Alert, Modal
+  ScrollView, StatusBar, SafeAreaView, Alert, Modal,
+  Image, TextInput
 } from 'react-native'
+import * as WebBrowser from 'expo-web-browser'
 import LoginScreen from './login'
 import ReelsScreen from './Screens/ReelsScreen'
 import ChatScreen from './Screens/screen'
@@ -20,6 +22,9 @@ export default function App() {
   const [showChat, setShowChat] = useState(false)
   const [showNotifs, setShowNotifs] = useState(false)
   const [postContent, setPostContent] = useState('')
+  const [postType, setPostType] = useState('text')
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
   const [isAnonymous, setIsAnonymous] = useState(false)
   const [referCode, setReferCode] = useState('')
   const [posting, setPosting] = useState(false)
@@ -83,20 +88,57 @@ export default function App() {
     } catch (e) {}
   }
 
+  const handleOpenLink = async (url) => {
+    if (!url) return
+    try {
+      let formattedUrl = url.trim()
+      if (!/^https?:\/\//i.test(formattedUrl)) {
+        formattedUrl = 'https://' + formattedUrl
+      }
+      await WebBrowser.openBrowserAsync(formattedUrl)
+    } catch (error) {
+      Alert.alert('Error', 'Could not open link!')
+    }
+  }
+
   const handlePost = async () => {
-    if (!postContent.trim()) {
+    if (postType === 'text' && !postContent.trim()) {
       Alert.alert('Error', 'Write something first!')
       return
     }
+    if (postType === 'image' && !mediaUrl.trim()) {
+      Alert.alert('Error', 'Please enter Image URL!')
+      return
+    }
+    if (postType === 'video' && !mediaUrl.trim()) {
+      Alert.alert('Error', 'Please enter Video URL!')
+      return
+    }
+    if (postType === 'link' && !linkUrl.trim()) {
+      Alert.alert('Error', 'Please enter Link URL!')
+      return
+    }
+
     setPosting(true)
     try {
-      const res = await createPost({ content: postContent, isAnonymous })
+      const res = await createPost({
+        content: postContent,
+        isAnonymous,
+        postType,
+        mediaUrl: postType === 'image' || postType === 'video' ? mediaUrl : '',
+        linkUrl: postType === 'link' ? linkUrl : ''
+      })
       Alert.alert('✅', res.data.message)
       setPostContent('')
+      setMediaUrl('')
+      setLinkUrl('')
+      setPostType('text')
       setShowCreate(false)
       loadFeed()
       loadBalance()
-    } catch (e) {}
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'Error occurred!')
+    }
     setPosting(false)
   }
 
@@ -253,7 +295,57 @@ export default function App() {
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.postContent}>{post.content}</Text>
+                  {post.content ? (
+                    <Text style={styles.postContent}>{post.content}</Text>
+                  ) : null}
+
+                  {/* 🖼️ Render Image Post */}
+                  {post.postType === 'image' && post.mediaUrl ? (
+                    <View style={styles.mediaContainer}>
+                      <Image
+                        source={{ uri: post.mediaUrl }}
+                        style={styles.postImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  ) : null}
+
+                  {/* 🎥 Render Video Post */}
+                  {post.postType === 'video' && post.mediaUrl ? (
+                    <TouchableOpacity 
+                      style={styles.videoPlayerCard}
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenLink(post.mediaUrl)}
+                    >
+                      <View style={styles.videoPlayerPlaceholder}>
+                        <Text style={styles.videoIcon}>🎥</Text>
+                        <Text style={styles.videoPlayText}>Tap to Open Video</Text>
+                        <View style={styles.playButtonOverlay}>
+                          <Text style={styles.playButtonText}>▶</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {/* 🔗 Render Link Post */}
+                  {post.postType === 'link' && post.linkUrl ? (
+                    <TouchableOpacity
+                      style={styles.linkCard}
+                      activeOpacity={0.8}
+                      onPress={() => handleOpenLink(post.linkUrl)}
+                    >
+                      <View style={styles.linkIconContainer}>
+                        <Text style={styles.linkIconEmoji}>🔗</Text>
+                      </View>
+                      <View style={styles.linkMeta}>
+                        <Text style={styles.linkUrlText} numberOfLines={1}>
+                          {post.linkUrl}
+                        </Text>
+                        <Text style={styles.linkTapText}>Tap to open link ↗</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
+
                   <View style={styles.postActions}>
                     <TouchableOpacity
                       style={styles.actionBtn}
@@ -478,14 +570,107 @@ export default function App() {
           </View>
 
           <View style={{ padding: 16, gap: 12 }}>
-            <View style={styles.modalInput}>
-              <Text
-                style={[styles.inputText, !postContent && { color: '#4b5563' }]}
-                onPress={() => {}}
-              >
-                {postContent || 'What\'s on your mind? Speak freely... 🔓'}
-              </Text>
+            {/* Post Type Selector Tabs */}
+            <View style={styles.tabBar}>
+              {[
+                { type: 'text', label: '📝 Text' },
+                { type: 'image', label: '🖼️ Image' },
+                { type: 'video', label: '🎥 Video' },
+                { type: 'link', label: '🔗 Link' }
+              ].map(t => (
+                <TouchableOpacity
+                  key={t.type}
+                  style={[styles.tabButton, postType === t.type && styles.tabButtonActive]}
+                  onPress={() => setPostType(t.type)}
+                >
+                  <Text style={[styles.tabButtonText, postType === t.type && styles.tabButtonTextActive]}>
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+
+            {/* Dynamic Inputs based on selected Post Type */}
+            {postType === 'text' && (
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder="What's on your mind? Speak freely... 🔓"
+                placeholderTextColor="#4b5563"
+                value={postContent}
+                onChangeText={setPostContent}
+                multiline
+                maxLength={500}
+              />
+            )}
+
+            {postType === 'image' && (
+              <View style={{ gap: 10 }}>
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Paste Image URL (e.g. https://...)"
+                  placeholderTextColor="#4b5563"
+                  value={mediaUrl}
+                  onChangeText={setMediaUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Write a caption (optional)..."
+                  placeholderTextColor="#4b5563"
+                  value={postContent}
+                  onChangeText={setPostContent}
+                  multiline
+                  maxLength={500}
+                />
+              </View>
+            )}
+
+            {postType === 'video' && (
+              <View style={{ gap: 10 }}>
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Paste Video URL (e.g. https://...)"
+                  placeholderTextColor="#4b5563"
+                  value={mediaUrl}
+                  onChangeText={setMediaUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Write a caption (optional)..."
+                  placeholderTextColor="#4b5563"
+                  value={postContent}
+                  onChangeText={setPostContent}
+                  multiline
+                  maxLength={500}
+                />
+              </View>
+            )}
+
+            {postType === 'link' && (
+              <View style={{ gap: 10 }}>
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Paste Link URL (e.g. https://google.com)"
+                  placeholderTextColor="#4b5563"
+                  value={linkUrl}
+                  onChangeText={setLinkUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+                <TextInput
+                  style={styles.modalTextInputSmall}
+                  placeholder="Write a description or caption (optional)..."
+                  placeholderTextColor="#4b5563"
+                  value={postContent}
+                  onChangeText={setPostContent}
+                  multiline
+                  maxLength={500}
+                />
+              </View>
+            )}
 
             <TouchableOpacity
               style={[styles.anonToggle, isAnonymous && styles.anonToggleActive]}
@@ -505,25 +690,27 @@ export default function App() {
             </View>
           </View>
 
-          {/* Simple Text Input */}
-          <View style={{ paddingHorizontal: 16 }}>
-            <View style={styles.textBox}>
-              {[
-                'I am on VOID CHAT! 🔓',
-                'Privacy first! 🛡️',
-                'Speaking the truth! 🗣️',
-                'No fear here! 💪',
-              ].map((suggestion, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.suggestion}
-                  onPress={() => setPostContent(suggestion)}
-                >
-                  <Text style={styles.suggestionText}>{suggestion}</Text>
-                </TouchableOpacity>
-              ))}
+          {/* Suggestions (Only show when writing Text posts to help user) */}
+          {postType === 'text' && (
+            <View style={{ paddingHorizontal: 16 }}>
+              <View style={styles.textBox}>
+                {[
+                  'I am on VOID CHAT! 🔓',
+                  'Privacy first! 🛡️',
+                  'Speaking the truth! 🗣️',
+                  'No fear here! 💪',
+                ].map((suggestion, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={styles.suggestion}
+                    onPress={() => setPostContent(suggestion)}
+                  >
+                    <Text style={styles.suggestionText}>{suggestion}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
         </SafeAreaView>
       </Modal>
 
@@ -1026,5 +1213,137 @@ const styles = StyleSheet.create({
     color: '#f87171',
     fontSize: 15,
     fontWeight: '800',
+  },
+
+  // ── New Media Post & Selector Styles ─────────────────────────
+  tabBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#0a0a0a',
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#1e1e2c',
+    marginBottom: 8,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  tabButtonActive: {
+    backgroundColor: '#c8ff00',
+  },
+  tabButtonText: {
+    color: '#6b7280',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  tabButtonTextActive: {
+    color: '#050608',
+  },
+  modalTextInput: {
+    backgroundColor: '#0e0e14', borderRadius: 16, padding: 16,
+    minHeight: 110, borderWidth: 1, borderColor: '#1e1e2c',
+    color: '#f0f0ff', fontSize: 15, textAlignVertical: 'top',
+  },
+  modalTextInputSmall: {
+    backgroundColor: '#0e0e14', borderRadius: 16, padding: 16,
+    minHeight: 56, borderWidth: 1, borderColor: '#1e1e2c',
+    color: '#f0f0ff', fontSize: 15,
+  },
+  mediaContainer: {
+    marginTop: 10,
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#12121e',
+  },
+  postImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 16,
+  },
+  videoPlayerCard: {
+    marginTop: 10,
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  videoPlayerPlaceholder: {
+    height: 180,
+    backgroundColor: '#0a0a0f',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
+    borderRadius: 16,
+    position: 'relative',
+  },
+  videoIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  videoPlayText: {
+    color: '#6b7280',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  playButtonOverlay: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#c8ff00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#c8ff00',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  playButtonText: {
+    color: '#050608',
+    fontSize: 18,
+    marginLeft: 4,
+    fontWeight: '900',
+  },
+  linkCard: {
+    flexDirection: 'row',
+    backgroundColor: '#0e0e14',
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1e1e2c',
+    alignItems: 'center',
+    gap: 14,
+  },
+  linkIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#1e1e2c',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  linkIconEmoji: {
+    fontSize: 18,
+  },
+  linkMeta: {
+    flex: 1,
+    gap: 4,
+  },
+  linkUrlText: {
+    color: '#a5b4fc',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  linkTapText: {
+    color: '#4b5563',
+    fontSize: 11,
+    fontWeight: '600',
   },
 })

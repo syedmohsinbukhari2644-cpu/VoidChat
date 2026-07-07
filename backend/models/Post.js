@@ -8,8 +8,20 @@ const PostSchema = new mongoose.Schema({
   },
   content: {
     type: String,
-    required: true,
     maxlength: 500
+  },
+  postType: {
+    type: String,
+    enum: ['text', 'image', 'video', 'link'],
+    default: 'text'
+  },
+  mediaUrl: {
+    type: String,
+    default: ''
+  },
+  linkUrl: {
+    type: String,
+    default: ''
   },
   isAnonymous: {
     type: Boolean,
