@@ -3,9 +3,22 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal
 } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { updatePreferences } from '../api'
 import { RTCView } from 'react-native-webrtc'
 import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
-import webrtcService from '../../utils/webrtcService'
+import rawWebrtcService from '../../utils/webrtcService'
+import Icon from '../../components/Icon'
+import ChatDoodleBackground from '../../components/ChatDoodleBackground'
+
+const webrtcService = Platform.OS === 'web' ? new Proxy({}, {
+  get: (target, prop) => {
+    return () => Promise.resolve({});
+  },
+  set: (target, prop, value) => {
+    return true;
+  }
+}) : rawWebrtcService;
 
 const mockMessages = [
   {
@@ -14,7 +27,8 @@ const mockMessages = [
     type: 'text',
     text: 'Salam! VOID CHAT pe aakar acha laga 🔓',
     time: '10:30',
-    streak: false
+    streak: false,
+    timestamp: Date.now() - 300000
   },
   {
     id: '2',
@@ -22,7 +36,8 @@ const mockMessages = [
     type: 'text',
     text: 'Haan yaar! Yahan sab private hai 🔐',
     time: '10:31',
-    streak: false
+    streak: false,
+    timestamp: Date.now() - 240000
   },
   {
     id: '3',
@@ -30,11 +45,25 @@ const mockMessages = [
     type: 'text',
     text: 'Streak maintain karo — VOID milega! 🔥',
     time: '10:32',
-    streak: true
+    streak: true,
+    timestamp: Date.now() - 180000
   },
 ]
 
-export default function ChatScreen({ contact, onBack, onViewProfile, blockedUsers }) {
+export default function ChatScreen({
+  contact,
+  onBack,
+  onViewProfile,
+  blockedUsers,
+  messageTextSize = 15,
+  chatWallpaper = 'classic_dark',
+  nameColor = '#c8ff00',
+  onBlockToggle,
+  onLockToggle,
+  onChangeAvatar,
+  isLocked,
+  onAddGroupMember,
+}) {
   const isBlocked = blockedUsers?.includes(contact?.id || contact?.userId)
   const [messages, setMessages] = useState(mockMessages)
   const [input, setInput] = useState('')
@@ -47,6 +76,15 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
   const [isMuted, setIsMuted] = useState(false)
   const [isSpeaker, setIsSpeaker] = useState(false)
   const [callDuration, setCallDuration] = useState(0)
+
+  // ── New Chat Settings states ──
+  const [showChatMenuModal, setShowChatMenuModal] = useState(false)
+  const [disappearingMode, setDisappearingMode] = useState('off') // off, 24h, 7d, 30d
+  const [isChatMuted, setIsChatMuted] = useState(false)
+  const [localChatTheme, setLocalChatTheme] = useState('classic_dark')
+  const [searchMessageText, setSearchMessageText] = useState('')
+  const [showSearchBox, setShowSearchBox] = useState(false)
+  const [showMediaDetails, setShowMediaDetails] = useState(false)
 
   // ── WebRTC Real Call State ────────────────────────────────────
   const [localStream, setLocalStream] = useState(null)
@@ -76,6 +114,17 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
   const [showCameraRoll, setShowCameraRoll] = useState(false)
   const [selectedDraft, setSelectedDraft] = useState(null)
   const [showDraftPreview, setShowDraftPreview] = useState(false)
+
+  // ── Voice Recording State ─────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [audioURL, setAudioURL] = useState(null)
+  const [playingMsgId, setPlayingMsgId] = useState(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
+  const audioRefs = useRef({})
+
   
   const cameraFilters = [
     { name: 'normal', label: 'Normal', emoji: '📷' },
@@ -167,6 +216,110 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
     return () => clearInterval(interval)
   }, [onCall, callStatus])
 
+  // ── Disappearing Messages Handler ──
+  useEffect(() => {
+    if (disappearingMode === 'off') return
+
+    let durationMs = 0
+    if (disappearingMode === '10s') durationMs = 10 * 1000
+    else if (disappearingMode === '1m') durationMs = 60 * 1000
+    else if (disappearingMode === '24h') durationMs = 24 * 60 * 60 * 1000
+    else if (disappearingMode === '7d') durationMs = 7 * 24 * 60 * 60 * 1000
+    else if (disappearingMode === '30d') durationMs = 30 * 24 * 60 * 60 * 1000
+
+    if (durationMs === 0) return
+
+    const interval = setInterval(() => {
+      setMessages(prev => {
+        const filtered = prev.filter(m => {
+          const ts = m.timestamp || Date.now()
+          return (Date.now() - ts) < durationMs
+        })
+        if (filtered.length !== prev.length) {
+          return filtered
+        }
+        return prev
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [disappearingMode])
+
+  // ── Starred Messages Logic ──
+  useEffect(() => {
+    const loadStarredStatus = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('starred_messages') || '[]'
+        const starredList = JSON.parse(stored)
+        const starredIds = starredList.map(m => m.id)
+        
+        setMessages(prev => prev.map(msg => {
+          if (starredIds.includes(msg.id)) {
+            return { ...msg, isStarred: true }
+          }
+          return msg
+        }))
+      } catch (e) {}
+    }
+    loadStarredStatus()
+  }, [])
+
+  const toggleStarMessage = async (msgId) => {
+    try {
+      let nowStarred = false
+      const updatedMessages = messages.map(msg => {
+        if (msg.id === msgId) {
+          nowStarred = !msg.isStarred
+          return { ...msg, isStarred: nowStarred }
+        }
+        return msg
+      })
+      setMessages(updatedMessages)
+
+      const stored = await AsyncStorage.getItem('starred_messages') || '[]'
+      let starredList = JSON.parse(stored)
+
+      const targetMsg = messages.find(m => m.id === msgId)
+      if (nowStarred) {
+        const textToSave = targetMsg.type === 'text' 
+          ? (targetMsg.originalText || decryptMessage(targetMsg.text)) 
+          : (targetMsg.content || 'Media Message')
+
+        starredList.push({
+          id: targetMsg.id,
+          chatId: contact?.id || contact?.userId,
+          contactName: contact?.name || 'User',
+          type: targetMsg.type,
+          text: textToSave,
+          time: targetMsg.time,
+          timestamp: targetMsg.timestamp || Date.now()
+        })
+      } else {
+        starredList = starredList.filter(m => m.id !== msgId)
+      }
+
+      await AsyncStorage.setItem('starred_messages', JSON.stringify(starredList))
+      await updatePreferences({ starredMessages: starredList })
+      Alert.alert(nowStarred ? '⭐ Message Starred' : '⭐ Message Unstarred')
+    } catch (e) {
+      Alert.alert('Error', 'Could not update starred status.')
+    }
+  }
+
+  const handleMsgLongPress = (msg) => {
+    Alert.alert(
+      'Message Options',
+      'Choose an action:',
+      [
+        {
+          text: msg.isStarred ? '⭐ Unstar Message' : '⭐ Star Message',
+          onPress: () => toggleStarMessage(msg.id)
+        },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    )
+  }
+
   const formatCallDuration = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
@@ -184,7 +337,8 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
       time: new Date().toLocaleTimeString([], {
         hour: '2-digit', minute: '2-digit'
       }),
-      streak: false
+      streak: false,
+      timestamp: Date.now()
     }
     setMessages(prev => [...prev, newMsg])
     setInput('')
@@ -485,6 +639,101 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
     ])
   }
 
+  // ── Voice Recording Functions ────────────────────────────────
+  const startRecording = async () => {
+    if (Platform.OS !== 'web') {
+      Alert.alert('🎙️', 'Voice recording is supported in web version.')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const url = URL.createObjectURL(blob)
+        const duration = recordingDuration
+        setIsRecording(false)
+        setRecordingDuration(0)
+        clearInterval(recordingTimerRef.current)
+        // stop all tracks
+        stream.getTracks().forEach(t => t.stop())
+        // send voice message
+        const msg = {
+          id: Date.now().toString(),
+          from: 'me',
+          type: 'voice',
+          audioUrl: url,
+          duration: duration,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          streak: false
+        }
+        setMessages(prev => [...prev, msg])
+        setStreak(prev => prev + 1)
+      }
+
+      recorder.start()
+      setIsRecording(true)
+      setRecordingDuration(0)
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1)
+      }, 1000)
+    } catch (err) {
+      Alert.alert('🎙️ Mic Error', 'Microphone access denied. Please allow mic permission.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    clearInterval(recordingTimerRef.current)
+  }
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      // Remove onstop so no message is sent
+      mediaRecorderRef.current.onstop = null
+      mediaRecorderRef.current.stop()
+    }
+    clearInterval(recordingTimerRef.current)
+    setIsRecording(false)
+    setRecordingDuration(0)
+  }
+
+  const formatDuration = (secs) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0')
+    const s = (secs % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
+  }
+
+  const togglePlayVoice = (msgId, audioUrl) => {
+    if (Platform.OS !== 'web') return
+    // Stop any currently playing
+    if (playingMsgId && playingMsgId !== msgId) {
+      const prev = audioRefs.current[playingMsgId]
+      if (prev) { prev.pause(); prev.currentTime = 0 }
+    }
+    if (!audioRefs.current[msgId]) {
+      audioRefs.current[msgId] = new Audio(audioUrl)
+      audioRefs.current[msgId].onended = () => setPlayingMsgId(null)
+    }
+    const audio = audioRefs.current[msgId]
+    if (playingMsgId === msgId) {
+      audio.pause()
+      setPlayingMsgId(null)
+    } else {
+      audio.play()
+      setPlayingMsgId(msgId)
+    }
+  }
+
   // ── End Call (Real) ──────────────────────────────────────────
   const endCall = () => {
     webrtcService.endCall()
@@ -508,7 +757,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
     
     Alert.alert(
       '🔐 Permission Request',
-      `Send request to ${contact?.name || 'Zara'}: "${permissionLabels[permissionType]}"`,
+      `Send request to ${contact?.name || 'User'}: "${permissionLabels[permissionType]}"`,
       [
         { text: 'Cancel', onPress: () => {} },
         { 
@@ -580,21 +829,21 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backIcon}>←</Text>
+        <TouchableOpacity onPress={onBack} style={[styles.backBtn, { padding: 4 }]}>
+          <Icon name="arrow_back" size={22} color="#f9fafb" />
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.contactInfo}
-          onPress={() => onViewProfile && onViewProfile(contact)}
+          onPress={() => setShowChatMenuModal(true)}
         >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {contact?.name?.[0] || 'Z'}
+              {contact?.name?.[0] || 'U'}
             </Text>
           </View>
           <View>
-            <Text style={styles.contactName}>
-              {contact?.name || 'Zara 💑'}
+            <Text style={[styles.contactName, { color: nameColor }]}>
+              {contact?.name || 'User'} {isChatMuted && '🔕'}
             </Text>
             <Text style={styles.encStatus}>
               {onCall ? '🔴 On Call' : '🔐 E2E Encrypted'}
@@ -611,9 +860,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
               screenshotAllowed ? styles.privacyBtnOff : styles.privacyBtnOn
             ]}
           >
-            <Text style={styles.privacyBtnText}>
-              {screenshotAllowed ? '📸' : '📵'}
-            </Text>
+            <Icon name={screenshotAllowed ? 'photo_camera' : 'no_photography'} size={20} color={screenshotAllowed ? '#4ade80' : '#ef4444'} />
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -621,7 +868,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             onPress={() => {
               Alert.alert(
                 '🔐 Permissions',
-                `${contact?.name || 'Zara'}'s Permissions:\n\n` +
+                `${contact?.name || 'User'}'s Permissions:\n\n` +
                 `Screenshot: ${otherUserPermissions.canScreenshot ? '✅ Allowed' : '❌ Blocked'}\n` +
                 `Forward Images: ${otherUserPermissions.canForward ? '✅ Allowed' : '❌ Blocked'}\n` +
                 `Share Contact: ${otherUserPermissions.canShareContact ? '✅ Allowed' : '❌ Blocked'}`,
@@ -635,7 +882,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
               )
             }}
           >
-            <Text style={styles.permBtnIcon}>🔒</Text>
+            <Icon name="security" size={20} color="#a855f7" />
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -648,7 +895,14 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             }}
             style={[styles.callBtn, isBlocked && { opacity: 0.4 }]}
           >
-            <Text style={styles.callIcon}>{onCall ? '📞' : '☎️'}</Text>
+            <Icon name="call" size={20} color="#c8ff00" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={() => setShowChatMenuModal(true)}
+            style={{ padding: 4, marginLeft: 8 }}
+          >
+            <Icon name="more_vert" size={22} color="#f9fafb" />
           </TouchableOpacity>
         </View>
         
@@ -664,7 +918,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             style={styles.vcOption}
             onPress={startVoiceCall}
           >
-            <Text style={styles.vcIcon}>🎤</Text>
+            <Icon name="mic" size={24} color="#c8ff00" style={styles.vcIcon} />
             <View style={styles.vcText}>
               <Text style={styles.vcTitle}>Voice Call</Text>
               <Text style={styles.vcDesc}>Start voice conversation</Text>
@@ -674,7 +928,7 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             style={styles.vcOption}
             onPress={startVideoCall}
           >
-            <Text style={styles.vcIcon}>📹</Text>
+            <Icon name="video_call" size={24} color="#c8ff00" style={styles.vcIcon} />
             <View style={styles.vcText}>
               <Text style={styles.vcTitle}>Video Call</Text>
               <Text style={styles.vcDesc}>Start video conversation</Text>
@@ -695,22 +949,24 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             <Text style={styles.incomingCallName}>
               {incomingCall?.fromName || 'Unknown'}
             </Text>
-            <Text style={styles.incomingCallType}>
-              {incomingCall?.callType === 'video' ? '📹 Video Call aaya!' : '🎤 Voice Call aaya!'}
-            </Text>
+            <View style={styles.incomingCallType}>
+              <Text style={{ color: '#8b8ba7', fontSize: 14 }}>
+                {incomingCall?.callType === 'video' ? 'Video Call' : 'Voice Call'}
+              </Text>
+            </View>
             <View style={styles.incomingCallBtns}>
               <TouchableOpacity
                 style={styles.rejectCallBtn}
                 onPress={rejectIncomingCall}
               >
-                <Text style={styles.rejectCallIcon}>📵</Text>
+                <Icon name="call_end" size={22} color="#ef4444" style={styles.rejectCallIcon} />
                 <Text style={styles.rejectCallText}>Reject</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.answerCallBtn}
                 onPress={answerIncomingCall}
               >
-                <Text style={styles.answerCallIcon}>📞</Text>
+                <Icon name="call" size={22} color="#4ade80" style={styles.answerCallIcon} />
                 <Text style={styles.answerCallText}>Answer</Text>
               </TouchableOpacity>
             </View>
@@ -750,11 +1006,11 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
               <View style={styles.callInfo}>
                 <View style={styles.callAvatar}>
                   <Text style={styles.callAvatarText}>
-                    {contact?.name?.[0] || 'Z'}
+                    {contact?.name?.[0] || 'U'}
                   </Text>
                 </View>
                 <View style={styles.callDetails}>
-                  <Text style={styles.callName}>{contact?.name || 'Zara 💑'}</Text>
+                  <Text style={styles.callName}>{contact?.name || 'User'}</Text>
                   <Text style={styles.callType}>
                     {callStatus === 'calling'
                       ? '⏳ Connecting...'
@@ -772,38 +1028,38 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             {/* Call Controls */}
             <View style={styles.callControls}>
               <TouchableOpacity
-                style={[styles.callBtn, isMuted && styles.callBtnActive]}
+                style={[styles.callingScreenBtn, isMuted && styles.callBtnActive]}
                 onPress={toggleMute}
               >
-                <Text style={styles.callBtnIcon}>{isMuted ? '🔇' : '🎤'}</Text>
+                <Icon name={isMuted ? 'mic_off' : 'mic'} size={24} color="#ffffff" style={styles.callBtnIcon} />
                 <Text style={styles.callBtnLabel}>{isMuted ? 'Muted' : 'Mute'}</Text>
               </TouchableOpacity>
 
               {callType === 'video' && (
                 <TouchableOpacity
-                  style={styles.callBtn}
+                  style={styles.callingScreenBtn}
                   onPress={switchCamera}
                 >
-                  <Text style={styles.callBtnIcon}>🔄</Text>
+                  <Icon name="autorenew" size={24} color="#ffffff" style={styles.callBtnIcon} />
                   <Text style={styles.callBtnLabel}>Flip</Text>
                 </TouchableOpacity>
               )}
 
               {callType === 'voice' && (
                 <TouchableOpacity
-                  style={[styles.callBtn, isSpeaker && styles.callBtnActive]}
+                  style={[styles.callingScreenBtn, isSpeaker && styles.callBtnActive]}
                   onPress={toggleSpeaker}
                 >
-                  <Text style={styles.callBtnIcon}>{isSpeaker ? '🔊' : '📱'}</Text>
+                  <Icon name={isSpeaker ? 'volume_up' : 'phone_android'} size={24} color="#ffffff" style={styles.callBtnIcon} />
                   <Text style={styles.callBtnLabel}>{isSpeaker ? 'Speaker' : 'Phone'}</Text>
                 </TouchableOpacity>
               )}
 
               <TouchableOpacity
-                style={[styles.callBtn, styles.callBtnEnd]}
+                style={[styles.callingScreenBtn, styles.callBtnEnd]}
                 onPress={endCall}
               >
-                <Text style={styles.callBtnIcon}>📞</Text>
+                <Icon name="call_end" size={24} color="#ef4444" style={styles.callBtnIcon} />
                 <Text style={styles.callBtnLabel}>End</Text>
               </TouchableOpacity>
             </View>
@@ -819,8 +1075,27 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
       </View>
 
       {/* Messages */}
-      <ScrollView style={styles.messages} contentContainerStyle={{ padding: 16, gap: 8 }} keyboardShouldPersistTaps="handled">
-        {messages.map(msg => (
+      <View style={{
+        flex: 1,
+        position: 'relative',
+        overflow: 'hidden',
+        backgroundColor: { 
+          classic_dark: '#0a0a0f', 
+          solid_gray: '#27272a', 
+          neon_glow: '#120024', 
+          emerald_deep: '#021e10',
+          pastel_blue: '#0a1c2a',
+          aura_purple: '#1c052e',
+          sunset_dark: '#24040a'
+        }[localChatTheme || chatWallpaper] || '#0a0a0a'
+      }}>
+        <ChatDoodleBackground opacity={0.08} />
+        <ScrollView 
+          style={[styles.messages, { backgroundColor: 'transparent' }]} 
+          contentContainerStyle={{ padding: 16, gap: 8 }} 
+          keyboardShouldPersistTaps="handled"
+        >
+          {messages.map(msg => (
           <View
             key={msg.id}
             style={[
@@ -829,7 +1104,11 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             ]}
           >
             {msg.type === 'image' && (
-              <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                onLongPress={() => handleMsgLongPress(msg)} 
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+              >
                 <View style={[styles.imageBubble, msg.filter && getFilterStyle(msg.filter)]}>
                   <Text style={styles.imagePlaceholder}>🖼️</Text>
                   <Text style={styles.imageText}>{msg.content}</Text>
@@ -847,15 +1126,20 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                   )}
                 </View>
                 <View style={styles.msgMeta}>
+                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             
             {msg.type === 'location' && (
-              <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                onLongPress={() => handleMsgLongPress(msg)} 
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+              >
                 <View style={styles.locationBubble}>
                   <Text style={styles.locationText}>{msg.content}</Text>
                   <TouchableOpacity style={styles.mapBtn}>
@@ -863,15 +1147,20 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                   </TouchableOpacity>
                 </View>
                 <View style={styles.msgMeta}>
+                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             
             {msg.type === 'contact' && (
-              <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                onLongPress={() => handleMsgLongPress(msg)} 
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+              >
                 <View style={styles.contactBubble}>
                   <View style={styles.contactAvatar}>
                     <Text style={styles.contactAvatarText}>{msg.contact.name[0]}</Text>
@@ -885,36 +1174,42 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                   </TouchableOpacity>
                 </View>
                 <View style={styles.msgMeta}>
+                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             
             {msg.type === 'document' && (
-              <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                onLongPress={() => handleMsgLongPress(msg)} 
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+              >
                 <View style={styles.docBubble}>
-                  <Text style={styles.docIcon}>📄</Text>
+                  <Icon name="description" size={24} color="#8b8ba7" style={styles.docIcon} />
                   <View style={styles.docInfo}>
                     <Text style={styles.docName}>{msg.content}</Text>
                   </View>
                   <TouchableOpacity style={styles.downloadBtn}>
-                    <Text style={styles.downloadText}>⬇️</Text>
+                    <Icon name="download" size={16} color="#c8ff00" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.msgMeta}>
+                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             
             {msg.type === 'permissionRequest' && (
               <View style={[styles.bubble, styles.permissionBubble]}>
                 <View style={styles.permissionContent}>
-                  <Text style={styles.permissionIcon}>🔐</Text>
+                  <Icon name="lock" size={24} color="#a855f7" style={styles.permissionIcon} />
                   <View style={styles.permissionText}>
                     <Text style={styles.permissionTitle}>Permission Request</Text>
                     <Text style={styles.permissionDesc}>
@@ -956,12 +1251,48 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
               </View>
             )}
             
+            {msg.type === 'voice' && (
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                onLongPress={() => handleMsgLongPress(msg)} 
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+              >
+                <View style={styles.voiceBubble}>
+                  <TouchableOpacity
+                    style={styles.voicePlayBtn}
+                    onPress={() => togglePlayVoice(msg.id, msg.audioUrl)}
+                  >
+                    <Icon name={playingMsgId === msg.id ? 'pause' : 'play_arrow'} size={14} color="#c8ff00" style={styles.voicePlayIcon} />
+                  </TouchableOpacity>
+                  <View style={styles.voiceWave}>
+                    {[3,5,8,6,9,7,4,6,8,5,7,4,6,9,5].map((h, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.voiceBar,
+                          { height: h * 2 + 6 },
+                          playingMsgId === msg.id && { backgroundColor: '#c8ff00' }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.voiceDuration}>{formatDuration(msg.duration || 0)}</Text>
+                </View>
+                <View style={styles.msgMeta}>
+                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
+                  <Text style={styles.msgTime}>{msg.time}</Text>
+                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                  <Text style={styles.msgLock}>🔒</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             {msg.type === 'text' && (
               <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
                 {msg.from === 'me' ? (
-                  <Text style={styles.msgText}>{msg.originalText || decryptMessage(msg.text)}</Text>
+                  <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{msg.originalText || decryptMessage(msg.text)}</Text>
                 ) : (
-                  <Text style={styles.msgText}>{decryptMessage(msg.text)}</Text>
+                  <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{decryptMessage(msg.text)}</Text>
                 )}
                 <View style={styles.msgMeta}>
                   <Text style={styles.msgTime}>{msg.time}</Text>
@@ -974,7 +1305,8 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
             )}
           </View>
         ))}
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Camera Roll Drafts */}
       {showCameraRoll && (
@@ -1007,19 +1339,19 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                       style={styles.draftViewBtn}
                       onPress={() => previewDraft(draft)}
                     >
-                      <Text style={styles.draftViewIcon}>👁️</Text>
+                      <Icon name="visibility" size={16} color="#d946ef" style={styles.draftViewIcon} />
                     </TouchableOpacity>
                     <TouchableOpacity 
                       style={styles.draftSendBtn}
                       onPress={() => sendFromDraft(draft)}
                     >
-                      <Text style={styles.draftSendIcon}>✈️</Text>
+                      <Icon name="send" size={16} color="#d946ef" style={styles.draftSendIcon} />
                     </TouchableOpacity>
                     <TouchableOpacity 
                       style={styles.draftDeleteBtn}
                       onPress={() => deleteDraft(draft.id)}
                     >
-                      <Text style={styles.draftDeleteIcon}>🗑️</Text>
+                      <Icon name="delete" size={16} color="#ef4444" style={styles.draftDeleteIcon} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1101,23 +1433,23 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
       {showMediaMenu && (
         <View style={styles.mediaMenu}>
           <TouchableOpacity style={styles.mediaOption} onPress={sendPhoto}>
-            <Text style={styles.mediaIcon}>📷</Text>
+            <Icon name="photo_camera" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Camera</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.mediaOption} onPress={sendFromGallery}>
-            <Text style={styles.mediaIcon}>🖼️</Text>
+            <Icon name="image" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Gallery</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.mediaOption} onPress={shareLocation}>
-            <Text style={styles.mediaIcon}>📍</Text>
+            <Icon name="location_on" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Location</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.mediaOption} onPress={shareContact}>
-            <Text style={styles.mediaIcon}>👤</Text>
+            <Icon name="person" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Contact</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.mediaOption} onPress={shareDocument}>
-            <Text style={styles.mediaIcon}>📄</Text>
+            <Icon name="description" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Document</Text>
           </TouchableOpacity>
         </View>
@@ -1141,18 +1473,29 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                 {screenshotAllowed ? '📸 Screenshots allowed' : '📵 Screenshots blocked'}
               </Text>
             </View>
+            {/* Recording indicator bar */}
+            {isRecording && (
+              <View style={styles.recordingBar}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingTime}>{formatDuration(recordingDuration)}</Text>
+                <Text style={styles.recordingHint}>  ← Swipe to cancel</Text>
+                <TouchableOpacity onPress={cancelRecording} style={styles.recordingCancelBtn}>
+                  <Text style={styles.recordingCancelText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.inputRow}>
               <TouchableOpacity 
                 style={styles.mediaBtn}
                 onPress={() => setShowMediaMenu(!showMediaMenu)}
               >
-                <Text style={styles.mediaBtnIcon}>+</Text>
+                <Icon name="add" size={24} color="#d946ef" />
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.cameraRollBtn, cameraRoll.length > 0 && styles.cameraRollBtnActive]}
                 onPress={() => setShowCameraRoll(!showCameraRoll)}
               >
-                <Text style={styles.cameraRollIcon}>📷</Text>
+                <Icon name="image" size={20} color={cameraRoll.length > 0 ? '#d946ef' : '#8b8ba7'} />
                 {cameraRoll.length > 0 && (
                   <Text style={styles.cameraRollBadge}>{cameraRoll.length}</Text>
                 )}
@@ -1165,22 +1508,450 @@ export default function ChatScreen({ contact, onBack, onViewProfile, blockedUser
                 onChangeText={setInput}
                 multiline
               />
-              <TouchableOpacity
-                style={[styles.sendBtn, input.trim() && styles.sendBtnActive]}
-                onPress={sendMessage}
-              >
-                <Text style={styles.sendIcon}>➤</Text>
-              </TouchableOpacity>
+              {input.trim() ? (
+                <TouchableOpacity
+                  style={[styles.sendBtn, styles.sendBtnActive]}
+                  onPress={sendMessage}
+                >
+                  <Icon name="send" size={20} color="#d946ef" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.micBtn, isRecording && styles.micBtnActive]}
+                  onPressIn={startRecording}
+                  onPressOut={stopRecording}
+                  activeOpacity={0.7}
+                >
+                  <Icon name={isRecording ? 'stop' : 'mic'} size={22} color={isRecording ? '#ef4444' : '#8b8ba7'} />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* ── Chat Preferences Modal ──────────────────────────────── */}
+      <Modal visible={showChatMenuModal} transparent animationType="fade" onRequestClose={() => setShowChatMenuModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <ScrollView
+            style={{ width: '95%', maxHeight: '90%' }}
+            contentContainerStyle={{ backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 12 }}>
+              <Text style={{ color: '#ffd700', fontSize: 16, fontWeight: '800' }}>🛠️ Chat Preferences</Text>
+              <TouchableOpacity onPress={() => setShowChatMenuModal(false)}>
+                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>✕ Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* ── Profile Picture / Avatar ── */}
+            <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CONTACT AVATAR</Text>
+              <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>🖼️ Change Profile Picture / Emoji</Text>
+              <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Pick an emoji or type a custom icon for this contact</Text>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                {['💑', '👻', '🐱', '💖', '🔥', '⚡', '🎭', '🦋', '🌙', '🎮'].map(em => (
+                  <TouchableOpacity
+                    key={em}
+                    style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: contact?.avatar === em ? 'rgba(200,255,0,0.15)' : '#161622', borderWidth: 1, borderColor: contact?.avatar === em ? '#c8ff00' : '#1e1e2c', justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => { if (onChangeAvatar) onChangeAvatar(contact.id || contact.userId, em) }}
+                  >
+                    <Text style={{ fontSize: 20 }}>{em}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
+                placeholder="Or type any emoji / text…"
+                placeholderTextColor="#4b5563"
+                defaultValue={contact?.avatar || ''}
+                onChangeText={(val) => { if (onChangeAvatar) onChangeAvatar(contact.id || contact.userId, val) }}
+              />
+            </View>
+
+            {/* ── Lock Chat ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔒 Lock Chat (Vault)</Text>
+                <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Move to Secret Vault — PIN + Fingerprint protected</Text>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => { if (onLockToggle) onLockToggle(contact.id || contact.userId) }}
+                style={{
+                  width: 50, height: 28, borderRadius: 14,
+                  backgroundColor: isLocked ? '#c8ff00' : '#27272a',
+                  padding: 3, justifyContent: 'center',
+                  alignItems: isLocked ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isLocked ? '#050608' : '#a1a1aa' }} />
+              </TouchableOpacity>
+            </View>
+
+            {/* ── Disappearing Messages ── */}
+            <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
+              <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Messages self-delete after the selected time</Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {['off', '24h', '7d', '30d'].map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={{
+                      flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
+                      borderColor: disappearingMode === time ? '#c8ff00' : '#1e1e2c',
+                      backgroundColor: disappearingMode === time ? 'rgba(200,255,0,0.1)' : 'transparent',
+                      alignItems: 'center',
+                    }}
+                    onPress={() => {
+                      setDisappearingMode(time)
+                      Alert.alert('⏳ Disappearing Messages', `Timer set to: ${time === 'off' ? 'Off' : time}`)
+                    }}
+                  >
+                    <Text style={{ color: disappearingMode === time ? '#c8ff00' : '#f0f0ff', fontSize: 12, fontWeight: '800' }}>
+                      {time.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* ── Add Member to Group ── (group chats only) */}
+            {contact?.isGroup && (
+              <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+                <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>GROUP MANAGEMENT</Text>
+                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>➕ Add Member to Group</Text>
+                <TextInput
+                  style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
+                  placeholder="Enter @username to add…"
+                  placeholderTextColor="#4b5563"
+                  onSubmitEditing={(e) => {
+                    const text = e.nativeEvent.text.trim()
+                    if (onAddGroupMember && text) {
+                      onAddGroupMember(contact.id || contact.userId, text)
+                    }
+                  }}
+                  returnKeyType="send"
+                />
+              </View>
+            )}
+
+
+            {/* ── Contact Info Detail Display ── */}
+            <View style={{ gap: 6, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CONTACT DETAILS</Text>
+              <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>👤 Name: {contact?.name || 'Unknown'}</Text>
+              <Text style={{ color: '#8b8ba7', fontSize: 13 }}>📱 Number/Email: {contact?.phoneNumber || 'not_shared_or_private@void.chat'}</Text>
+            </View>
+
+            {/* ── Search Message ── */}
+            <View style={{ paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2c', gap: 6 }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>SEARCH MESSAGES</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={{ flex: 1, backgroundColor: '#161622', borderRadius: 10, paddingHorizontal: 12, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 13 }}
+                  placeholder="Type to search in chat..."
+                  placeholderTextColor="#4b5563"
+                  value={searchMessageText}
+                  onChangeText={setSearchMessageText}
+                />
+                <TouchableOpacity
+                  style={{ backgroundColor: '#c8ff00', paddingHorizontal: 12, borderRadius: 10, justifyContent: 'center' }}
+                  onPress={() => {
+                    if (searchMessageText.trim()) {
+                      const matched = messages.filter(m => (m.text || m.originalText || '').toLowerCase().includes(searchMessageText.toLowerCase()))
+                      Alert.alert('Search Results', `Found ${matched.length} matching messages in this conversation.`)
+                    } else {
+                      Alert.alert('Info', 'Please enter text to search.')
+                    }
+                  }}
+                >
+                  <Text style={{ color: '#000', fontWeight: '900', fontSize: 12 }}>Find</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ── Media, Links & Docs ── */}
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}
+              onPress={() => {
+                setShowChatMenuModal(false)
+                Alert.alert(
+                  '📁 Media, Links & Docs',
+                  'Shared Photos: 2\nShared Links: 1\nDocuments: 0',
+                  [{ text: 'Close', style: 'cancel' }]
+                )
+              }}
+            >
+              <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>📁 Media, Links & Docs</Text>
+              <Text style={{ color: '#8b8ba7', fontSize: 12 }}>View all ›</Text>
+            </TouchableOpacity>
+
+            {/* ── Mute Notifications ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔔 Mute Notifications</Text>
+                <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Silence alerts from this contact</Text>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  setIsChatMuted(!isChatMuted)
+                  Alert.alert(isChatMuted ? '🔔 Notifications Unmuted' : '🔕 Notifications Muted', `Alerts from @${contact?.name || 'User'} silenced.`)
+                }}
+                style={{
+                  width: 50, height: 28, borderRadius: 14,
+                  backgroundColor: isChatMuted ? '#c8ff00' : '#27272a',
+                  padding: 3, justifyContent: 'center',
+                  alignItems: isChatMuted ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isChatMuted ? '#050608' : '#a1a1aa' }} />
+              </TouchableOpacity>
+            </View>
+
+            {/* ── Chat Theme Selector ── */}
+            <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>PERSONAL CHAT THEME</Text>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { id: 'classic_dark', label: 'Dark', color: '#0f0f15' },
+                  { id: 'neon_glow', label: 'Neon', color: '#ff007f' },
+                  { id: 'emerald_deep', label: 'Emerald', color: '#10b981' },
+                  { id: 'sunset_dark', label: 'Sunset', color: '#f97316' }
+                ].map(th => (
+                  <TouchableOpacity
+                    key={th.id}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: localChatTheme === th.id ? '#c8ff00' : '#1e1e2c',
+                      backgroundColor: th.color + '20',
+                    }}
+                    onPress={() => {
+                      setLocalChatTheme(th.id)
+                      Alert.alert('Theme Updated', `Chat theme for ${contact?.name || 'User'} changed successfully!`)
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{th.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* ── Lock Chat ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔒 Lock Chat (Vault)</Text>
+                <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Move to Secret Vault — PIN + Fingerprint protected</Text>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => { if (onLockToggle) onLockToggle(contact.id || contact.userId) }}
+                style={{
+                  width: 50, height: 28, borderRadius: 14,
+                  backgroundColor: isLocked ? '#c8ff00' : '#27272a',
+                  padding: 3, justifyContent: 'center',
+                  alignItems: isLocked ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isLocked ? '#050608' : '#a1a1aa' }} />
+              </TouchableOpacity>
+            </View>
+
+            {/* ── Disappearing Messages ── */}
+            <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
+              <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Messages self-delete after the selected time</Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                {['off', '10s', '1m', '24h', '7d', '30d'].map((time) => (
+                  <TouchableOpacity
+                    key={time}
+                    style={{
+                      paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
+                      borderColor: disappearingMode === time ? '#c8ff00' : '#1e1e2c',
+                      backgroundColor: disappearingMode === time ? 'rgba(200,255,0,0.1)' : 'transparent',
+                      alignItems: 'center',
+                    }}
+                    onPress={() => {
+                      setDisappearingMode(time)
+                      Alert.alert('⏳ Disappearing Messages', `Timer set to: ${time === 'off' ? 'Off' : time}`)
+                    }}
+                  >
+                    <Text style={{ color: disappearingMode === time ? '#c8ff00' : '#f0f0ff', fontSize: 12, fontWeight: '800' }}>
+                      {time.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* ── Add Member to Group ── (group chats only) */}
+            {contact?.isGroup && (
+              <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+                <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>GROUP MANAGEMENT</Text>
+                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>➕ Add Member to Group</Text>
+                <TextInput
+                  style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
+                  placeholder="Enter @username to add…"
+                  placeholderTextColor="#4b5563"
+                  onSubmitEditing={(e) => {
+                    const text = e.nativeEvent.text.trim()
+                    if (onAddGroupMember && text) {
+                      onAddGroupMember(contact.id || contact.userId, text)
+                    }
+                  }}
+                  returnKeyType="send"
+                />
+              </View>
+            )}
+
+            {/* ── Create Group ── (1-on-1 chats only) */}
+            {!contact?.isGroup && (
+              <TouchableOpacity
+                style={{ backgroundColor: 'rgba(200,255,0,0.07)', borderWidth: 1, borderColor: '#c8ff0028', paddingVertical: 14, borderRadius: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                onPress={() => {
+                  setShowChatMenuModal(false)
+                  Alert.alert(
+                    '👥 Create Group',
+                    `Create a group and add ${contact?.name?.split(' ')[0] || 'this user'} as a member?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Go to Group Create', onPress: () => Alert.alert('Tip', 'Tap the + icon on the Chats screen to create a group, then add members from there.') }
+                    ]
+                  )
+                }}
+              >
+                <Icon name="group_add" size={18} color="#c8ff00" />
+                <Text style={{ color: '#c8ff00', fontSize: 13, fontWeight: '800' }}>Create Group with {contact?.name?.split(' ')[0] || 'User'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* ── Block / Unblock ── */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: isBlocked ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                borderWidth: 1,
+                borderColor: isBlocked ? '#10b98130' : '#ef444430',
+                paddingVertical: 14,
+                borderRadius: 14,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8
+              }}
+              onPress={() => {
+                if (onBlockToggle) {
+                  onBlockToggle(contact.id || contact.userId)
+                  setShowChatMenuModal(false)
+                  Alert.alert(isBlocked ? '✅ User Unblocked' : '🚫 User Blocked', 'Status updated.')
+                }
+              }}
+            >
+              <Text style={{ color: isBlocked ? '#10b981' : '#f87171', fontSize: 14, fontWeight: '800' }}>
+                {isBlocked ? '✅ Unblock User' : '🚫 Block User'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* ── Report User ── */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: 'rgba(239,68,68,0.1)',
+                borderWidth: 1,
+                borderColor: '#ef444430',
+                paddingVertical: 14,
+                borderRadius: 14,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8
+              }}
+              onPress={() => {
+                setShowChatMenuModal(false)
+                Alert.alert(
+                  '📢 Report User',
+                  `Are you sure you want to report @${contact?.name || 'User'}? This will submit a report to the Void Chat moderation team.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Report', style: 'destructive', onPress: () => Alert.alert('Reported', 'User has been reported successfully.') }
+                  ]
+                )
+              }}
+            >
+              <Text style={{ color: '#f87171', fontSize: 14, fontWeight: '800' }}>
+                ⚠️ Report User
+              </Text>
+            </TouchableOpacity>
+
+          </ScrollView>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   )
 }
 
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 600 : '100%',
+    borderLeftWidth: Platform.OS === 'web' ? 1 : 0,
+    borderRightWidth: Platform.OS === 'web' ? 1 : 0,
+    borderColor: '#1a1a24',
+  },
+
+  // ── Voice Recording ──────────────────────────────────────────
+  recordingBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#1a0000', paddingHorizontal: 16, paddingVertical: 8,
+    borderTopWidth: 1, borderTopColor: '#ff4d4d30', gap: 8,
+  },
+  recordingDot: {
+    width: 10, height: 10, borderRadius: 5, backgroundColor: '#ff4d4d',
+  },
+  recordingTime: { color: '#ff4d4d', fontWeight: '800', fontSize: 14 },
+  recordingHint: { color: '#6b7280', fontSize: 12, flex: 1 },
+  recordingCancelBtn: { padding: 4 },
+  recordingCancelText: { color: '#ff4d4d', fontWeight: '900', fontSize: 18 },
+  micBtn: {
+    padding: 8,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  micBtnActive: {
+    opacity: 0.7,
+  },
+  micIcon: { fontSize: 20 },
+
+  // ── Voice Bubble ─────────────────────────────────────────────
+  voiceBubble: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 6, paddingHorizontal: 4, minWidth: 180,
+  },
+  voicePlayBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#c8ff0020', borderWidth: 1, borderColor: '#c8ff0050',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  voicePlayIcon: { fontSize: 14, color: '#c8ff00' },
+  voiceWave: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    gap: 2, height: 30,
+  },
+  voiceBar: {
+    width: 3, borderRadius: 2,
+    backgroundColor: '#4b5563',
+  },
+  voiceDuration: {
+    color: '#9ca3af', fontSize: 11, fontWeight: '600', minWidth: 36,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1210,30 +1981,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   privacyBtn: {
-    width: 36, height: 36,
-    borderRadius: 18,
+    padding: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
   },
-  privacyBtnOff: {
-    backgroundColor: '#ff4d4d20',
-    borderColor: '#ff4d4d',
-  },
-  privacyBtnOn: {
-    backgroundColor: '#4ade8020',
-    borderColor: '#4ade80',
-  },
+  privacyBtnOff: {},
+  privacyBtnOn: {},
   privacyBtnText: { fontSize: 18 },
   
   callBtn: {
-    width: 36, height: 36,
-    borderRadius: 18,
-    backgroundColor: '#111',
+    padding: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1f2937',
   },
   callIcon: { fontSize: 18 },
   
@@ -1340,7 +2099,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   
-  callBtn: {
+  callingScreenBtn: {
     width: 70,
     height: 70,
     borderRadius: 35,
@@ -1432,6 +2191,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',
     backgroundColor: '#0a0a0a',
+    paddingBottom: Platform.OS === 'android' ? 24 : 10,
   },
   blockedBannerContainer: {
     padding: 20,
@@ -1474,26 +2234,20 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendBtn: {
-    width: 42, height: 42,
-    borderRadius: 21,
-    backgroundColor: '#1f2937',
+    padding: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sendBtnActive: { backgroundColor: '#d946ef' },
-  sendIcon: { fontSize: 18, color: '#fff' },
+  sendBtnActive: {},
+  sendIcon: { fontSize: 22, color: '#d946ef' },
   
   mediaBtn: {
-    width: 40, height: 40,
-    borderRadius: 20,
-    backgroundColor: '#d946ef20',
+    padding: 8,
+    marginRight: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#d946ef',
-    marginRight: 4,
   },
-  mediaBtnIcon: { fontSize: 20, color: '#d946ef', fontWeight: '800' },
+  mediaBtnIcon: { fontSize: 26, color: '#d946ef', fontWeight: '300' },
   
   mediaMenu: {
     backgroundColor: '#111',
@@ -1627,13 +2381,9 @@ const styles = StyleSheet.create({
   downloadText: { fontSize: 16 },
   
   permBtn: {
-    width: 36, height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1a0a2e',
+    padding: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#d946ef',
   },
   
   permBtnIcon: { fontSize: 18 },
@@ -1790,21 +2540,15 @@ const styles = StyleSheet.create({
   
   // Camera Roll Styles
   cameraRollBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1a1a1a',
+    padding: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#3f3f3f',
     marginLeft: 8,
     position: 'relative',
   },
   
   cameraRollBtnActive: {
-    backgroundColor: '#d946ef20',
-    borderColor: '#d946ef',
+    opacity: 0.8,
   },
   
   cameraRollIcon: { fontSize: 18 },

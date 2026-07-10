@@ -1,0 +1,9 @@
+SyntaxError: SyntaxError: d:\VOID CHAT\VoidChat\src\app\index.tsx: Unexpected token, expected "," (4038:15)
+
+[0m [90m 4036 |[39m                   )}
+ [90m 4037 |[39m                 [33m<[39m[33m/[39m[33mTouchableOpacity[39m[33m>[39m
+[31m[1m>[22m[39m[90m 4038 |[39m               )}
+ [90m      |[39m                [31m[1m^[22m[39m
+ [90m 4039 |[39m             [33m<[39m[33m/[39m[33mView[39m[33m>[39m
+ [90m 4040 |[39m           [33m<[39m[33m/[39m[33mScrollView[39m[33m>[39m
+ [90m 4041 |[39m         [33m<[39m[33m/[39m[33mSafeAreaView[39m[33m>[39m[0m

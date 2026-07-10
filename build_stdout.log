@@ -1,0 +1,9 @@
+
+> voidchat@1.0.0 build
+> expo export --platform web
+
+Using src/app as the root directory for Expo Router.
+Starting Metro Bundler
+
+Web Bundling failed 6253ms node_modules\expo-router\entry.js (1271 modules)
+

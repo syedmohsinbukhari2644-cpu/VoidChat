@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, SafeAreaView, Alert
 } from 'react-native'
+import Icon from '../../components/Icon'
 
 export default function GroupListScreen({ onSelectGroup, onBack }) {
   const [groups, setGroups] = useState([
@@ -86,8 +87,8 @@ export default function GroupListScreen({ onSelectGroup, onBack }) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backIcon}>←</Text>
+          <TouchableOpacity onPress={onBack} style={{ padding: 4 }}>
+            <Icon name="arrow_back" size={22} color="#c8ff00" />
           </TouchableOpacity>
           <Text style={styles.title}>Groups</Text>
         </View>
@@ -95,7 +96,7 @@ export default function GroupListScreen({ onSelectGroup, onBack }) {
           style={styles.createBtn}
           onPress={() => setShowCreateGroup(true)}
         >
-          <Text style={styles.createIcon}>+</Text>
+          <Icon name="add" size={24} color="#c8ff00" />
         </TouchableOpacity>
       </View>
 
@@ -155,7 +156,7 @@ export default function GroupListScreen({ onSelectGroup, onBack }) {
       {/* Groups List */}
       {groups.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>👥</Text>
+          <Icon name="people" size={60} color="#3f3f46" style={styles.emptyIcon} />
           <Text style={styles.emptyText}>Koi group nahi</Text>
           <Text style={styles.emptySubtext}>Pehla group banao!</Text>
           <TouchableOpacity 
@@ -187,7 +188,10 @@ export default function GroupListScreen({ onSelectGroup, onBack }) {
               <View style={styles.groupMeta}>
                 <View style={styles.groupRight}>
                   <Text style={styles.groupTime}>{group.lastTime}</Text>
-                  <Text style={styles.groupMembers}>👥 {group.members}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, justifyContent: 'flex-end', marginTop: 4 }}>
+                    <Icon name="people" size={12} color="#8b8ba7" />
+                    <Text style={styles.groupMembers}>{group.members}</Text>
+                  </View>
                 </View>
                 {group.unread > 0 && (
                   <View style={styles.unreadBadge}>

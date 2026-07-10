@@ -1,6 +1,7 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity
 } from 'react-native'
+import Icon from '../../components/Icon'
 
 // ─── Design Tokens ────────────────────────────────────────────
 const C = {
@@ -15,32 +16,32 @@ const C = {
 // ─── Mock Data (English) ──────────────────────────────────────
 const mockNotifs = [
   {
-    id: '1', type: 'like', icon: '❤️',
+    id: '1', type: 'like', iconName: 'favorite',
     text: 'inklab_pk liked your post',
     VOID: '+2 VOID', time: '2 min', color: '#f43f5e',
   },
   {
-    id: '2', type: 'follow', icon: '👤',
+    id: '2', type: 'follow', iconName: 'person',
     text: 'fatima_art started following you',
     VOID: '', time: '15 min', color: '#6366f1',
   },
   {
-    id: '3', type: 'VOID', icon: '⚡',
+    id: '3', type: 'VOID', iconName: 'bolt',
     text: 'Daily login bonus received!',
     VOID: '+20 VOID', time: '1 hr', color: '#c8ff00',
   },
   {
-    id: '4', type: 'streak', icon: '🔥',
-    text: '47 day streak with Zara!',
+    id: '4', type: 'streak', iconName: 'flame',
+    text: '8 day streak with Ali Bhai!',
     VOID: '+62 VOID', time: '2 hr', color: '#fb923c',
   },
   {
-    id: '5', type: 'refer', icon: '🎁',
+    id: '5', type: 'refer', iconName: 'redeem',
     text: 'ali_pk joined using your referral!',
     VOID: '+500 VOID', time: '1 day', color: '#4ade80',
   },
   {
-    id: '6', type: 'comment', icon: '💬',
+    id: '6', type: 'comment', iconName: 'chat_bubble_outline',
     text: 'anonymous_soul commented on your post',
     VOID: '+5 VOID', time: '1 day', color: '#6b7280',
   },
@@ -72,9 +73,11 @@ export default function NotificationsScreen() {
               {
                 backgroundColor: notif.color + '20',
                 borderColor:     notif.color + '35',
+                justifyContent:  'center',
+                alignItems:      'center',
               }
             ]}>
-              <Text style={styles.iconEmoji}>{notif.icon}</Text>
+              <Icon name={notif.iconName} size={18} color={notif.color} />
             </View>
 
             {/* Text content */}

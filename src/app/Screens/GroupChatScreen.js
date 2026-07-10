@@ -3,6 +3,8 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert
 } from 'react-native'
+import Icon from '../../components/Icon'
+import ChatDoodleBackground from '../../components/ChatDoodleBackground'
 
 import { getGroupMessages, sendGroupMessage } from '../api'
 
@@ -123,7 +125,7 @@ export default function GroupChatScreen({ group, onBack }) {
   }
 
   // legacy UI helper for media menu (mock) — text send uses real API
-  const sendGroupMessage = (content, type = 'text') => {
+  const sendLocalMockMessage = (content, type = 'text') => {
     const msg = {
       id: Date.now().toString(),
       from: 'You',
@@ -163,19 +165,22 @@ export default function GroupChatScreen({ group, onBack }) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backIcon}>← </Text>
+          <TouchableOpacity onPress={onBack} style={{ padding: 4 }}>
+            <Icon name="arrow_back" size={22} color="#d946ef" />
           </TouchableOpacity>
-          <View>
+          <View style={{ flexDirection: 'column', marginLeft: 8 }}>
             <Text style={styles.groupName}>{group?.name || 'Group Chat'}</Text>
-            <Text style={styles.memberCount}>👥 {groupMembers.length} members</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="people" size={12} color="#8b8ba7" />
+              <Text style={styles.memberCount}>{groupMembers.length} members</Text>
+            </View>
           </View>
         </View>
         <TouchableOpacity 
           style={styles.groupInfoBtn}
           onPress={() => setShowGroupMenu(!showGroupMenu)}
         >
-          <Text style={styles.groupInfoIcon}>ⓘ</Text>
+          <Icon name="info" size={22} color="#d946ef" />
         </TouchableOpacity>
       </View>
 
@@ -189,7 +194,7 @@ export default function GroupChatScreen({ group, onBack }) {
               setShowGroupMenu(false)
             }}
           >
-            <Text style={styles.menuIcon}>👥</Text>
+            <Icon name="people" size={18} color="#d946ef" style={styles.menuIcon} />
             <Text style={styles.menuLabel}>Members ({groupMembers.length})</Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -199,21 +204,21 @@ export default function GroupChatScreen({ group, onBack }) {
               setShowGroupMenu(false)
             }}
           >
-            <Text style={styles.menuIcon}>➕</Text>
+            <Icon name="add" size={18} color="#d946ef" style={styles.menuIcon} />
             <Text style={styles.menuLabel}>Add Member</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.menuOption}
             onPress={() => Alert.alert('⚙️ Settings', 'Group settings here')}
           >
-            <Text style={styles.menuIcon}>⚙️</Text>
+            <Icon name="settings" size={18} color="#d946ef" style={styles.menuIcon} forceEmoji={true} />
             <Text style={styles.menuLabel}>Group Settings</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.menuOption, styles.menuOptionDanger]}
             onPress={leaveGroup}
           >
-            <Text style={styles.menuIcon}>🚪</Text>
+            <Icon name="logout" size={18} color="#ef4444" style={styles.menuIcon} />
             <Text style={[styles.menuLabel, styles.menuLabelDanger]}>Leave Group</Text>
           </TouchableOpacity>
         </View>
@@ -223,7 +228,10 @@ export default function GroupChatScreen({ group, onBack }) {
       {showMembers && (
         <View style={styles.membersPanel}>
           <View style={styles.membersPanelHeader}>
-            <Text style={styles.membersPanelTitle}>👥 Group Members</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Icon name="people" size={20} color="#d946ef" />
+              <Text style={styles.membersPanelTitle}>Group Members</Text>
+            </View>
             <TouchableOpacity onPress={() => setShowMembers(false)}>
               <Text style={styles.membersPanelClose}>✕</Text>
             </TouchableOpacity>
@@ -291,18 +299,20 @@ export default function GroupChatScreen({ group, onBack }) {
       )}
 
       {/* Messages */}
-      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {loadingMessages && (
-          <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
-        )}
+      <View style={{ flex: 1, position: 'relative', overflow: 'hidden', backgroundColor: '#060608' }}>
+        <ChatDoodleBackground opacity={0.08} />
+        <ScrollView style={[styles.messagesContainer, { backgroundColor: 'transparent' }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {loadingMessages && (
+            <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
+          )}
 
-        {!loadingMessages && messages.length === 0 && (
-          <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>
-            No messages yet
-          </Text>
-        )}
+          {!loadingMessages && messages.length === 0 && (
+            <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>
+              No messages yet
+            </Text>
+          )}
 
-        {messages.map((msg) => (
+          {messages.map((msg) => (
           <View key={msg.id} style={[styles.msgRow, msg.from === 'You' ? styles.msgRowMe : styles.msgRowThem]}>
             {msg.from !== 'You' && (
               <Text style={styles.msgAvatar}>{msg.avatar}</Text>
@@ -326,6 +336,7 @@ export default function GroupChatScreen({ group, onBack }) {
           </View>
         ))}
       </ScrollView>
+    </View>
 
 
       {/* Filter Menu */}
@@ -365,35 +376,35 @@ export default function GroupChatScreen({ group, onBack }) {
               setShowMediaMenu(false)
             }}
           >
-            <Text style={styles.mediaIcon}>📷</Text>
+            <Icon name="photo_camera" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Camera</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.mediaOption}
-            onPress={() => sendGroupMessage('🖼️ Image shared', 'image')}
+            onPress={() => sendLocalMockMessage('🖼️ Image shared', 'image')}
           >
-            <Text style={styles.mediaIcon}>🖼️</Text>
+            <Icon name="image" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Gallery</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.mediaOption}
-            onPress={() => sendGroupMessage('📍 Location: Karachi', 'location')}
+            onPress={() => sendLocalMockMessage('📍 Location: Karachi', 'location')}
           >
-            <Text style={styles.mediaIcon}>📍</Text>
+            <Icon name="location_on" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Location</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.mediaOption}
-            onPress={() => sendGroupMessage('👥 Contact shared', 'contact')}
+            onPress={() => sendLocalMockMessage('👥 Contact shared', 'contact')}
           >
-            <Text style={styles.mediaIcon}>👤</Text>
+            <Icon name="person" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Contact</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.mediaOption}
-            onPress={() => sendGroupMessage('📄 Document.pdf', 'document')}
+            onPress={() => sendLocalMockMessage('📄 Document.pdf', 'document')}
           >
-            <Text style={styles.mediaIcon}>📄</Text>
+            <Icon name="description" size={28} color="#d946ef" style={styles.mediaIcon} />
             <Text style={styles.mediaLabel}>Document</Text>
           </TouchableOpacity>
         </View>
@@ -407,7 +418,7 @@ export default function GroupChatScreen({ group, onBack }) {
               style={styles.mediaBtn}
               onPress={() => setShowMediaMenu(!showMediaMenu)}
             >
-              <Text style={styles.mediaBtnIcon}>+</Text>
+              <Icon name="add" size={24} color="#d946ef" />
             </TouchableOpacity>
             <TextInput
               style={styles.input}
@@ -421,7 +432,7 @@ export default function GroupChatScreen({ group, onBack }) {
               style={[styles.sendBtn, input.trim() && styles.sendBtnActive]}
               onPress={sendMessage}
             >
-              <Text style={styles.sendIcon}>➤</Text>
+              <Icon name="send" size={20} color="#d946ef" />
             </TouchableOpacity>
           </View>
         </View>
@@ -727,23 +738,18 @@ const styles = StyleSheet.create({
   
   mediaLabel: { color: '#f9fafb', fontWeight: '600', fontSize: 12 },
   
-  inputArea: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#1a1a1a', padding: 12 },
+  inputArea: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#1a1a1a', padding: 12, paddingBottom: Platform.OS === 'android' ? 24 : 12 },
   
   inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   
   mediaBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#d946ef20',
+    padding: 8,
+    marginRight: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#d946ef',
-    marginRight: 4,
   },
   
-  mediaBtnIcon: { fontSize: 20, color: '#d946ef', fontWeight: '800' },
+  mediaBtnIcon: { fontSize: 26, color: '#d946ef', fontWeight: '300' },
   
   input: {
     flex: 1,
@@ -759,18 +765,13 @@ const styles = StyleSheet.create({
   },
   
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1a1a1a',
+    padding: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#3f3f3f',
     marginLeft: 4,
   },
   
-  sendBtnActive: { backgroundColor: '#d946ef', borderColor: '#d946ef' },
+  sendBtnActive: {},
   
-  sendIcon: { fontSize: 18, color: '#d946ef', fontWeight: '800' },
+  sendIcon: { fontSize: 22, color: '#d946ef', fontWeight: '400' },
 })

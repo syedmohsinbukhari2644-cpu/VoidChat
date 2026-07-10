@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, Dimensions
+  ScrollView, Dimensions, Alert
 } from 'react-native'
-
+import Icon from '../../components/Icon'
 import GroupChatScreen from './GroupChatScreen'
 
 const { height } = Dimensions.get('window')
@@ -42,22 +42,40 @@ caption: 'Haq ki baat — VOID CHAT pe! 🔓 #freedom',
 export default function ReelsScreen() {
   const [currentReel, setCurrentReel] = useState(0)
   const [liked, setLiked] = useState({})
+  const [saved, setSaved] = useState({})
+  const [reposted, setReposted] = useState({})
   const [selectedFilter, setSelectedFilter] = useState('normal')
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-
   const [showGroupChat, setShowGroupChat] = useState(false)
+
+  // ── Hover Tooltip States & Timer ──
+  const [hoveredButton, setHoveredButton] = useState(null)
+  const hoverTimerRef = useRef(null)
+
+  const handleMouseEnter = (name) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    setHoveredButton(name)
+    // Automatically hide tooltip after 2 seconds (kuch hi second me gayab ho jaye)
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredButton(null)
+    }, 2000)
+  }
+
+  const handleMouseLeave = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    setHoveredButton(null)
+  }
   
   const cameraFilters = [
-
-    { name: 'normal', label: 'Normal', emoji: '📷' },
-    { name: 'sepia', label: 'Sepia', emoji: '🟤' },
-    { name: 'cool', label: 'Cool', emoji: '❄️' },
-    { name: 'bw', label: 'B&W', emoji: '⚫' },
-    { name: 'vintage', label: 'Vintage', emoji: '🎬' },
-    { name: 'neon', label: 'Neon', emoji: '⚡' },
-    { name: 'blur', label: 'Blur', emoji: '🌫️' },
-    { name: 'bright', label: 'Bright', emoji: '☀️' },
+    { name: 'normal',  label: 'Normal',  dot: '#9ca3af' },
+    { name: 'sepia',   label: 'Sepia',   dot: '#a16207' },
+    { name: 'cool',    label: 'Cool',    dot: '#38bdf8' },
+    { name: 'bw',      label: 'B&W',     dot: '#6b7280' },
+    { name: 'vintage', label: 'Vintage', dot: '#d97706' },
+    { name: 'neon',    label: 'Neon',    dot: '#c084fc' },
+    { name: 'blur',    label: 'Blur',    dot: '#e2e8f0' },
+    { name: 'bright',  label: 'Bright',  dot: '#fbbf24' },
   ]
   
   const reel = mockReels[currentReel]
@@ -71,6 +89,49 @@ export default function ReelsScreen() {
     )
   }
 
+  const actionsList = [
+    {
+      name: 'like',
+      label: 'Like',
+      iconName: liked[reel.id] ? 'favorite' : 'favorite_border',
+      iconColor: liked[reel.id] ? '#f87171' : '#ffffff',
+      count: (reel.likes + (liked[reel.id] ? 1 : 0)).toLocaleString(),
+      onPress: () => setLiked(p => ({ ...p, [reel.id]: !p[reel.id] }))
+    },
+    {
+      name: 'comment',
+      label: 'Comment',
+      iconName: 'chat_bubble_outline',
+      iconColor: '#ffffff',
+      count: '1.2K',
+      onPress: () => setShowGroupChat(true)
+    },
+    {
+      name: 'share',
+      label: 'Share',
+      iconName: 'send',
+      iconColor: '#ffffff',
+      count: '892',
+      onPress: () => Alert.alert('Share', 'Reel link copied to clipboard!')
+    },
+    {
+      name: 'save',
+      label: 'Save',
+      iconName: saved[reel.id] ? 'bookmark' : 'bookmark_border',
+      iconColor: saved[reel.id] ? '#fbbf24' : '#ffffff',
+      count: saved[reel.id] ? '1' : '0',
+      onPress: () => setSaved(p => ({ ...p, [reel.id]: !p[reel.id] }))
+    },
+    {
+      name: 'repost',
+      label: 'Repost',
+      iconName: 'autorenew',
+      iconColor: reposted[reel.id] ? '#4ade80' : '#ffffff',
+      count: reposted[reel.id] ? '125' : '124',
+      onPress: () => setReposted(p => ({ ...p, [reel.id]: !p[reel.id] }))
+    }
+  ]
+
   return (
     <View style={[styles.container, { backgroundColor: reel.color }]}>
 
@@ -78,7 +139,6 @@ export default function ReelsScreen() {
       {/* Top Bar */}
       <View style={styles.topBar}>
         <Text style={styles.title}>REELS</Text>
-        <Text style={styles.encBadge}>🔐 E2E</Text>
       </View>
 
       {/* Play Area */}
@@ -86,43 +146,27 @@ export default function ReelsScreen() {
         <View style={styles.playBtn}>
           <Text style={styles.playIcon}>▶</Text>
         </View>
-        <Text style={styles.viewCount}>👁️ {reel.views} views</Text>
-        <View style={styles.VOIDBadge}>
-          <Text style={styles.VOIDText}>⚡ {reel.VOID.toLocaleString()} VOID earned</Text>
-        </View>
+        <Text style={styles.viewCount}>👁 {reel.views} views</Text>
       </View>
 
       {/* Right Actions */}
       <View style={styles.rightActions}>
-        <TouchableOpacity
-          style={styles.actionItem}
-          onPress={() => setShowGroupChat(true)}
-        >
-          <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionCount}>Chat</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionItem}
-          onPress={() => setLiked(p => ({ ...p, [reel.id]: !p[reel.id] }))}
-        >
-
-          <Text style={styles.actionIcon}>
-            {liked[reel.id] ? '❤️' : '🤍'}
-          </Text>
-          <Text style={styles.actionCount}>
-            {(reel.likes + (liked[reel.id] ? 1 : 0)).toLocaleString()}
-          </Text>
-        </TouchableOpacity>
-
-        {[
-          { icon: '💬', count: '1.2K' },
-          { icon: '↗️', count: '892' },
-          { icon: '🔖', count: '' },
-          { icon: '⚡', count: 'VOID' },
-        ].map((action, i) => (
-          <TouchableOpacity key={i} style={styles.actionItem}>
-            <Text style={styles.actionIcon}>{action.icon}</Text>
+        {actionsList.map((action) => (
+          <TouchableOpacity
+            key={action.name}
+            style={styles.actionItem}
+            onPress={action.onPress}
+            onMouseEnter={() => handleMouseEnter(action.name)}
+            onMouseLeave={handleMouseLeave}
+            activeOpacity={0.8}
+          >
+            {/* Tooltip */}
+            {hoveredButton === action.name && (
+              <View style={styles.tooltipContainer}>
+                <Text style={styles.tooltipText}>{action.label}</Text>
+              </View>
+            )}
+            <Icon name={action.iconName} size={26} color={action.iconColor} />
             {action.count ? (
               <Text style={styles.actionCount}>{action.count}</Text>
             ) : null}
@@ -172,7 +216,7 @@ export default function ReelsScreen() {
                 ]}
                 onPress={() => setSelectedFilter(filter.name)}
               >
-                <Text style={styles.filterEmoji}>{filter.emoji}</Text>
+                <View style={[styles.filterDot, { backgroundColor: filter.dot }]} />
                 <Text style={styles.filterLabel}>{filter.label}</Text>
               </TouchableOpacity>
             ))}
@@ -186,22 +230,18 @@ export default function ReelsScreen() {
           style={[styles.recordBtn, isRecording && styles.recordBtnActive]}
           onPress={() => setShowFilterMenu(!showFilterMenu)}
         >
-          <Text style={styles.recordIcon}>🎥</Text>
+          <View style={styles.recordDot} />
           <Text style={styles.recordText}>
-            {isRecording ? '🔴 Recording...' : '📽️ Record Streak'}
+            {isRecording ? 'Recording...' : 'Record Streak'}
           </Text>
           {selectedFilter !== 'normal' && (
-            <Text style={styles.filterHint}>
-              {cameraFilters.find(f => f.name === selectedFilter)?.emoji}
-            </Text>
+            <View style={[styles.filterDot, { backgroundColor: cameraFilters.find(f => f.name === selectedFilter)?.dot }]} />
           )}
         </TouchableOpacity>
       </View>
-
-      {/* Creator Earn Info */}
       <View style={styles.earnInfo}>
         <Text style={styles.earnText}>
-          🎬 Creator ne {reel.VOID.toLocaleString()} VOID kamaye!
+          Creator ne {reel.VOID.toLocaleString()} VOID kamaye!
         </Text>
         <Text style={styles.earnSub}>
           Tum bhi reel banao — followers ki zaroorat nahi!
@@ -222,15 +262,21 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20, fontWeight: '800',
-    color: '#fff', letterSpacing: 2,
+    color: '#fff',
   },
+  encBadgeWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: '#ffffff15',
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1, borderColor: '#ffffff30',
+  },
+  encDot: { color: '#4ade80', fontSize: 8 },
   encBadge: {
     fontSize: 11,
-    backgroundColor: '#ffffff20',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    color: '#fff',
+    color: '#ffffffcc',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   playArea: {
     flex: 1,
@@ -257,14 +303,42 @@ const styles = StyleSheet.create({
   VOIDText: { color: '#c8ff00', fontSize: 13, fontWeight: '700' },
   rightActions: {
     position: 'absolute',
-    right: 12,
+    right: 16,
     bottom: 160,
-    gap: 20,
+    gap: 16,
     alignItems: 'center',
+    zIndex: 10,
   },
-  actionItem: { alignItems: 'center', gap: 4 },
+  actionItem: { 
+    alignItems: 'center', 
+    gap: 4,
+    position: 'relative',
+  },
+  tooltipContainer: {
+    position: 'absolute',
+    right: 46,
+    top: 2,
+    backgroundColor: '#0a0a0c',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#c8ff0080',
+    zIndex: 50,
+  },
+  tooltipText: {
+    color: '#c8ff00',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   actionIcon: { fontSize: 28 },
-  actionCount: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  actionIconSymbol: {
+    fontSize: 28, color: '#fff', fontWeight: '300',
+    textShadowColor: '#00000060',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  actionCount: { color: '#fff', fontSize: 11, fontWeight: '600', marginTop: 2 },
   bottomInfo: {
     position: 'absolute',
     bottom: 80,
@@ -397,5 +471,17 @@ const styles = StyleSheet.create({
   
   filterHint: {
     fontSize: 16,
+  },
+
+  // Dot indicators (filters + recording)
+  filterDot: {
+    width: 20, height: 20, borderRadius: 10,
+    marginBottom: 4,
+    borderWidth: 1.5, borderColor: '#ffffff40',
+  },
+  recordDot: {
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: '#f87171',
+    borderWidth: 1.5, borderColor: '#ff0000',
   },
 })

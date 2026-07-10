@@ -6,9 +6,7 @@ import {
 } from 'react-native-webrtc'
 import io from 'socket.io-client'
 
-// ── Config ─────────────────────────────────────────────────────
-const SOCKET_URL = 'https://voidchat-production-5df5.up.railway.app'
-// NOTE: Local test ke liye: 'http://192.168.x.x:3000'
+import { SOCKET_URL } from '../app/api'
 
 // Google ke free STUN servers
 const ICE_SERVERS = {

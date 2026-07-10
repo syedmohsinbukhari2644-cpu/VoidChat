@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, Share, Alert
 } from 'react-native'
+import Icon from '../../components/Icon'
 
 // ─── Design Tokens ────────────────────────────────────────────
 const C = {
@@ -47,10 +48,10 @@ export default function ReferScreen() {
   ]
 
   const steps = [
-    { step: '1', text: 'Share your code with a friend',                icon: '🔗' },
-    { step: '2', text: 'Friend downloads VOID CHAT and joins',          icon: '📲' },
-    { step: '3', text: 'You get +500 VOID — Friend gets +200 VOID',    icon: '⚡' },
-    { step: '4', text: 'Their referrals also earn you +250 VOID!',     icon: '♾️' },
+    { step: '1', text: 'Share your code with a friend',                iconName: 'link' },
+    { step: '2', text: 'Friend downloads VOID CHAT and joins',          iconName: 'phone_android' },
+    { step: '3', text: 'You get +500 VOID — Friend gets +200 VOID',    iconName: 'bolt' },
+    { step: '4', text: 'Their referrals also earn you +250 VOID!',     iconName: 'infinity' },
   ]
 
   return (
@@ -59,7 +60,7 @@ export default function ReferScreen() {
       {/* ── Hero Banner ──────────────────────────────────── */}
       <View style={styles.heroBanner}>
         <View style={styles.heroGlow} pointerEvents="none" />
-        <Text style={styles.heroEmoji}>🎁</Text>
+        <Icon name="redeem" size={60} color="#c8ff00" style={styles.heroEmoji} />
         <Text style={styles.heroTitle}>Refer & Earn</Text>
         <Text style={styles.heroSub}>
           Invite friends to VOID CHAT — both earn rewards!
@@ -69,12 +70,12 @@ export default function ReferScreen() {
       {/* ── Stats Row ────────────────────────────────────── */}
       <View style={styles.statsRow}>
         {[
-          { value: '7',     label: 'Total Refers', icon: '👥' },
-          { value: '3,500', label: 'VOID Earned',  icon: '⚡' },
-          { value: '700',   label: 'PKR Worth',    icon: '💵' },
+          { value: '7',     label: 'Total Refers', iconName: 'people', color: '#6366f1' },
+          { value: '3,500', label: 'VOID Earned',  iconName: 'bolt', color: '#c8ff00' },
+          { value: '700',   label: 'PKR Worth',    iconName: 'money', color: '#4ade80' },
         ].map((s, i) => (
           <View key={i} style={styles.statCard}>
-            <Text style={styles.statIcon}>{s.icon}</Text>
+            <Icon name={s.iconName} size={28} color={s.color} style={styles.statIcon} />
             <Text style={styles.statValue}>{s.value}</Text>
             <Text style={styles.statLabel}>{s.label}</Text>
           </View>
@@ -88,20 +89,22 @@ export default function ReferScreen() {
         <Text style={styles.codeText}>{referCode}</Text>
         <View style={styles.codeBtns}>
           <TouchableOpacity
-            style={[styles.codeBtn, copied && styles.codeBtnSuccess]}
+            style={[styles.codeBtn, copied && styles.codeBtnSuccess, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }]}
             onPress={handleCopy}
             activeOpacity={0.8}
           >
+            <Icon name={copied ? 'check_circle' : 'content_copy'} size={16} color={copied ? '#4ade80' : '#ffffff'} />
             <Text style={styles.codeBtnText}>
-              {copied ? '✅  Copied!' : '📋  Copy Code'}
+              {copied ? 'Copied!' : 'Copy Code'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.sharePrimaryBtn}
+            style={[styles.sharePrimaryBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }]}
             onPress={handleShare}
             activeOpacity={0.8}
           >
-            <Text style={styles.sharePrimaryBtnText}>↗️  Share</Text>
+            <Icon name="share" size={16} color="#050608" />
+            <Text style={styles.sharePrimaryBtnText}>Share</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -114,7 +117,7 @@ export default function ReferScreen() {
             <View style={styles.stepBubble}>
               <Text style={styles.stepNum}>{item.step}</Text>
             </View>
-            <Text style={styles.stepIcon}>{item.icon}</Text>
+            <Icon name={item.iconName} size={22} color="#c8ff00" style={styles.stepIcon} />
             <Text style={styles.stepText}>{item.text}</Text>
           </View>
         ))}
@@ -122,13 +125,16 @@ export default function ReferScreen() {
 
       {/* ── Milestones ───────────────────────────────────── */}
       <View style={[styles.section, { marginBottom: 40 }]}>
-        <Text style={styles.sectionTitle}>🏆 Milestones</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 18 }}>
+          <Icon name="star" size={18} color="#c8ff00" />
+          <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Milestones</Text>
+        </View>
         {milestones.map((m, i) => (
           <View
             key={i}
             style={[styles.milestoneRow, m.done && styles.milestoneDone]}
           >
-            <Text style={styles.milestoneCheck}>{m.done ? '✅' : '🎯'}</Text>
+            <Icon name={m.done ? 'check_circle' : 'target'} size={18} color={m.done ? '#4ade80' : '#8b8ba7'} style={styles.milestoneCheck} />
             <View style={styles.milestoneInfo}>
               <View style={styles.milestoneTop}>
                 <Text style={styles.milestoneRefers}>{m.refers} refers</Text>

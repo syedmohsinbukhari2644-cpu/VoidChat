@@ -1,20 +1,59 @@
 import axios from 'axios'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { Platform } from 'react-native'
+
+// Detect dev vs prod environment
+const isDev = __DEV__
+
+// Dynamic backend URL determination
+const getBackendUrl = () => {
+  if (isDev) {
+    if (Platform.OS === 'web') {
+      return 'http://localhost:3000'
+    }
+    try {
+      const Constants = require('expo-constants').default
+      const manifest = Constants.expoConfig || Constants.manifest
+      const hostUri = manifest?.debuggerHost?.split(':')[0]
+      if (hostUri) {
+        return `http://${hostUri}:3000`
+      }
+    } catch (e) {}
+    return Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000'
+  }
+  return 'https://voidchat-production-5df5.up.railway.app'
+}
+
+export const SOCKET_URL = getBackendUrl()
+const BASE_URL = `${SOCKET_URL}/api`
 
 // Backend server config
 const API = axios.create({
-  baseURL: 'https://voidchat-production-5df5.up.railway.app/api',
+  baseURL: BASE_URL,
   timeout: 10000,
 })
 
-// Socket.io URL (WebRTC signaling ke liye)
-// NOTE: Vercel pe Socket.io nahi chalta — Railway/Render pe deploy karo production mein
-export const SOCKET_URL = 'https://voidchat-production-5df5.up.railway.app'
+// Token automatically add karo aur save karo
+export const setToken = async (token) => {
+  if (token) {
+    API.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    await AsyncStorage.setItem('void_token', token)
+  } else {
+    delete API.defaults.headers.common['Authorization']
+    await AsyncStorage.removeItem('void_token')
+  }
+}
 
-
-
-// Token automatically add karo
-export const setToken = (token) => {
-  API.defaults.headers.common['Authorization'] = `Bearer ${token}`
+// Token load karo
+export const loadSavedToken = async () => {
+  try {
+    const token = await AsyncStorage.getItem('void_token')
+    if (token) {
+      API.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      return token
+    }
+  } catch (e) {}
+  return null
 }
 
 // Auth APIs
@@ -45,6 +84,7 @@ export const commentPost = (id, data) => API.post(`/posts/${id}/comment`, data)
 export const getBalance = () => API.get('/VOID/balance')
 export const dailyLogin = () => API.post('/VOID/daily-login')
 export const transferVOID = (data) => API.post('/VOID/transfer', data)
+export const buyPremium = () => API.post('/VOID/buy-premium')
 
 // Messages APIs
 export const sendMessage = (data) => API.post('/messages/send', data)
@@ -54,6 +94,9 @@ export const getMessages = (userId) => API.get(`/messages/${userId}`)
 export const sendGroupMessage = (groupId, data) =>
   API.post(`/groups/${groupId}/messages/send`, data)
 export const getGroupMessages = (groupId) => API.get(`/groups/${groupId}/messages`)
+export const createGroup = (data) => API.post('/groups/create', data)
+export const joinGroup = (id) => API.post(`/groups/${id}/join`)
+export const addGroupMember = (id, data) => API.post(`/groups/${id}/add-member`, data)
 
 // Refer APIs
 export const getMyCode = () => API.get('/refer/mycode')
@@ -66,6 +109,8 @@ export const uploadReel = (data) => API.post('/reels', data)
 // User Block APIs
 export const blockUser = (userId) => API.put(`/users/block/${userId}`)
 export const getMe = () => API.get('/users/me')
+export const getUsers = () => API.get('/users/all')
+export const updatePreferences = (data) => API.put('/users/preferences', data)
 
 export default API
 
