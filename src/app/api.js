@@ -79,6 +79,7 @@ export const getFeed = () => API.get('/posts')
 export const createPost = (data) => API.post('/posts', data)
 export const likePost = (id) => API.put(`/posts/${id}/like`)
 export const commentPost = (id, data) => API.post(`/posts/${id}/comment`, data)
+export const savePost = (id) => API.put(`/posts/${id}/save`)
 
 // VOID APIs
 export const getBalance = () => API.get('/VOID/balance')

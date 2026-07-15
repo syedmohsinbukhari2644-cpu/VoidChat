@@ -3,8 +3,35 @@
     "name": "VOID CHAT",
     "slug": "void-chat",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/44be8895-6567-4eb3-a787-4fbe60a20ebd"
+    },
     "android": {
-      "package": "com.voidchat.app"
+      "package": "com.voidchat.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDummyKeyToPreventCrashOnAndroid"
+        }
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "READ_CONTACTS"
+      ],
+      "navigationBar": {
+        "visible": "sticky-immersive",
+        "backgroundColor": "#000000"
+      },
+      "statusBar": {
+        "translucent": true,
+        "backgroundColor": "#00000000"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -21,7 +48,27 @@
     "plugins": [
       "expo-image",
       "expo-router",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them in chats.",
+          "cameraPermission": "The app accesses your camera to let you take photos for chats."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "The app accesses your contacts to invite friends."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "The app accesses your location to share with friends.",
+          "locationWhenInUsePermission": "The app accesses your location to share with friends."
+        }
+      ]
     ]
   }
 }

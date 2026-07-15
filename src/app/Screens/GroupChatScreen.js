@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, StatusBar
 } from 'react-native'
 import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
@@ -298,120 +298,124 @@ export default function GroupChatScreen({ group, onBack }) {
         </View>
       )}
 
-      {/* Messages */}
-      <View style={{ flex: 1, position: 'relative', overflow: 'hidden', backgroundColor: '#060608' }}>
-        <ChatDoodleBackground opacity={0.08} />
-        <ScrollView style={[styles.messagesContainer, { backgroundColor: 'transparent' }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {loadingMessages && (
-            <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
-          )}
-
-          {!loadingMessages && messages.length === 0 && (
-            <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>
-              No messages yet
-            </Text>
-          )}
-
-          {messages.map((msg) => (
-          <View key={msg.id} style={[styles.msgRow, msg.from === 'You' ? styles.msgRowMe : styles.msgRowThem]}>
-            {msg.from !== 'You' && (
-              <Text style={styles.msgAvatar}>{msg.avatar}</Text>
+      {/* Messages, Menus, and Input wrapped in KeyboardAvoidingView */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.select({ ios: 90, android: 0 })}
+      >
+        {/* Messages */}
+        <View style={{ flex: 1, position: 'relative', overflow: 'hidden', backgroundColor: '#060608' }}>
+          <ChatDoodleBackground opacity={0.08} />
+          <ScrollView style={[styles.messagesContainer, { backgroundColor: 'transparent' }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {loadingMessages && (
+              <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
             )}
 
-            <View style={[styles.bubble, msg.from === 'You' ? styles.bubbleMe : styles.bubbleThem]}>
-              {msg.from !== 'You' && (
-                <Text style={styles.senderName}>{msg.from}</Text>
-              )}
-              <Text style={styles.msgText}>{msg.text}</Text>
-              <View style={styles.msgMeta}>
-                <Text style={styles.msgTime}>{msg.time}</Text>
-                {msg.from === 'You' && <Text style={styles.msgStatus}>✓✓</Text>}
-                {msg.streak && <Text style={styles.streakBadge}>🔥</Text>}
+            {!loadingMessages && messages.length === 0 && (
+              <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>
+                No messages yet
+              </Text>
+            )}
+
+            {messages.map((msg) => (
+              <View key={msg.id} style={[styles.msgRow, msg.from === 'You' ? styles.msgRowMe : styles.msgRowThem]}>
+                {msg.from !== 'You' && (
+                  <Text style={styles.msgAvatar}>{msg.avatar}</Text>
+                )}
+
+                <View style={[styles.bubble, msg.from === 'You' ? styles.bubbleMe : styles.bubbleThem]}>
+                  {msg.from !== 'You' && (
+                    <Text style={styles.senderName}>{msg.from}</Text>
+                  )}
+                  <Text style={styles.msgText}>{msg.text}</Text>
+                  <View style={styles.msgMeta}>
+                    <Text style={styles.msgTime}>{msg.time}</Text>
+                    {msg.from === 'You' && <Text style={styles.msgStatus}>✓✓</Text>}
+                    {msg.streak && <Text style={styles.streakBadge}>🔥</Text>}
+                  </View>
+                </View>
+
+                {msg.from === 'You' && (
+                  <Text style={styles.msgAvatar}>{msg.avatar}</Text>
+                )}
               </View>
-            </View>
-
-            {msg.from === 'You' && (
-              <Text style={styles.msgAvatar}>{msg.avatar}</Text>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-    </View>
-
-
-      {/* Filter Menu */}
-      {showFilterMenu && (
-        <View style={styles.filterMenu}>
-          <View style={styles.filterHeader}>
-            <Text style={styles.filterTitle}>Choose Filter</Text>
-            <TouchableOpacity onPress={() => setShowFilterMenu(false)}>
-              <Text style={styles.filterClose}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-            {cameraFilters.map((filter) => (
-              <TouchableOpacity 
-                key={filter.name}
-                style={[
-                  styles.filterOption,
-                  selectedFilter === filter.name && styles.filterOptionActive
-                ]}
-                onPress={() => setSelectedFilter(filter.name)}
-              >
-                <Text style={styles.filterEmoji}>{filter.emoji}</Text>
-                <Text style={styles.filterLabel}>{filter.label}</Text>
-              </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
-      )}
 
-      {/* Media Menu */}
-      {showMediaMenu && (
-        <View style={styles.mediaMenu}>
-          <TouchableOpacity 
-            style={styles.mediaOption} 
-            onPress={() => {
-              setShowFilterMenu(true)
-              setShowMediaMenu(false)
-            }}
-          >
-            <Icon name="photo_camera" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Camera</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.mediaOption}
-            onPress={() => sendLocalMockMessage('🖼️ Image shared', 'image')}
-          >
-            <Icon name="image" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Gallery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.mediaOption}
-            onPress={() => sendLocalMockMessage('📍 Location: Karachi', 'location')}
-          >
-            <Icon name="location_on" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Location</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.mediaOption}
-            onPress={() => sendLocalMockMessage('👥 Contact shared', 'contact')}
-          >
-            <Icon name="person" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Contact</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.mediaOption}
-            onPress={() => sendLocalMockMessage('📄 Document.pdf', 'document')}
-          >
-            <Icon name="description" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Document</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        {/* Filter Menu */}
+        {showFilterMenu && (
+          <View style={styles.filterMenu}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Choose Filter</Text>
+              <TouchableOpacity onPress={() => setShowFilterMenu(false)}>
+                <Text style={styles.filterClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+              {cameraFilters.map((filter) => (
+                <TouchableOpacity 
+                  key={filter.name}
+                  style={[
+                    styles.filterOption,
+                    selectedFilter === filter.name && styles.filterOptionActive
+                  ]}
+                  onPress={() => setSelectedFilter(filter.name)}
+                >
+                  <Text style={filter.emoji ? styles.filterEmoji : {}}>{filter.emoji}</Text>
+                  <Text style={styles.filterLabel}>{filter.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
-      {/* Input */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {/* Media Menu */}
+        {showMediaMenu && (
+          <View style={styles.mediaMenu}>
+            <TouchableOpacity 
+              style={styles.mediaOption} 
+              onPress={() => {
+                setShowFilterMenu(true)
+                setShowMediaMenu(false)
+              }}
+            >
+              <Icon name="photo_camera" size={28} color="#d946ef" style={styles.mediaIcon} />
+              <Text style={styles.mediaLabel}>Camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.mediaOption}
+              onPress={() => sendLocalMockMessage('🖼️ Image shared', 'image')}
+            >
+              <Icon name="image" size={28} color="#d946ef" style={styles.mediaIcon} />
+              <Text style={styles.mediaLabel}>Gallery</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.mediaOption}
+              onPress={() => sendLocalMockMessage('📍 Location: Karachi', 'location')}
+            >
+              <Icon name="location_on" size={28} color="#d946ef" style={styles.mediaIcon} />
+              <Text style={styles.mediaLabel}>Location</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.mediaOption}
+              onPress={() => sendLocalMockMessage('👥 Contact shared', 'contact')}
+            >
+              <Icon name="person" size={28} color="#d946ef" style={styles.mediaIcon} />
+              <Text style={styles.mediaLabel}>Contact</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.mediaOption}
+              onPress={() => sendLocalMockMessage('📄 Document.pdf', 'document')}
+            >
+              <Icon name="description" size={28} color="#d946ef" style={styles.mediaIcon} />
+              <Text style={styles.mediaLabel}>Document</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Input */}
         <View style={styles.inputArea}>
           <View style={styles.inputRow}>
             <TouchableOpacity 
@@ -442,7 +446,7 @@ export default function GroupChatScreen({ group, onBack }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  container: { flex: 1, backgroundColor: '#0a0a0a', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   
   header: {
     flexDirection: 'row',
@@ -743,13 +747,18 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   
   mediaBtn: {
-    padding: 8,
-    marginRight: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#161622',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 4,
   },
   
-  mediaBtnIcon: { fontSize: 26, color: '#d946ef', fontWeight: '300' },
+  mediaBtnIcon: { fontSize: 24, color: '#d946ef', fontWeight: '300' },
   
   input: {
     flex: 1,
@@ -765,13 +774,20 @@ const styles = StyleSheet.create({
   },
   
   sendBtn: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#161622',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 4,
   },
   
-  sendBtnActive: {},
+  sendBtnActive: {
+    backgroundColor: '#1e1c0e',
+  },
   
-  sendIcon: { fontSize: 22, color: '#d946ef', fontWeight: '400' },
+  sendIcon: { fontSize: 20, color: '#d946ef', fontWeight: '400' },
 })

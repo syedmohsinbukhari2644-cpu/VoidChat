@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, StatusBar, SafeAreaView, Alert, Modal,
-  Image, TextInput, BackHandler, Platform
+  Image, TextInput, BackHandler, Platform, useWindowDimensions, Share
 } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as NavigationBar from 'expo-navigation-bar'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import LoginScreen from './login'
 import ReelsScreen from './Screens/ReelsScreen'
@@ -12,13 +14,33 @@ import ChatScreen from './Screens/screen'
 import NotificationsScreen from './Screens/NotificationsScreen'
 import ReferScreen from './Screens/ReferScreen'
 import Icon from '../components/Icon'
-import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences } from './api'
+import * as Contacts from 'expo-contacts'
+import * as ImagePicker from 'expo-image-picker'
+import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost } from './api'
 
 export default function App() {
+  const { width: windowWidth } = useWindowDimensions()
+  const isLargeScreen = windowWidth >= 768
+  const insets = useSafeAreaInsets()
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [loadingAuth, setLoadingAuth] = useState(true)
   const [activeTab, setActiveTab] = useState('feed')
   const [chatInboxTab, setChatInboxTab] = useState('chats')
+
+  // ── Navigation Bar Immersive Mode ──
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const hideNavigationBar = async () => {
+        try {
+          await NavigationBar.setVisibilityAsync('hidden')
+          await NavigationBar.setBehaviorAsync('overlay-swipe')
+        } catch (e) {
+          console.warn('Navigation Bar Hide Error: ', e)
+        }
+      }
+      hideNavigationBar()
+    }
+  }, [])
 
   // ── Tab Persistence ──
   useEffect(() => {
@@ -65,6 +87,19 @@ export default function App() {
   const [showWallet, setShowWallet] = useState(false)
   const [showStarredModal, setShowStarredModal] = useState(false)
   const [showChatOptionsMenu, setShowChatOptionsMenu] = useState(false)
+
+  // Contacts Sync states
+  const [showContactsSyncModal, setShowContactsSyncModal] = useState(false)
+  const [matchedContacts, setMatchedContacts] = useState([])
+  const [syncingContacts, setSyncingContacts] = useState(false)
+
+  // Status/Story states
+  const [mockStatuses, setMockStatuses] = useState([
+    { id: '1', name: 'Ali Bhai', avatar: 'A', time: '10 mins ago', content: '🔥 Just earned +500 VOID streak bonus! speak write live!', color: '#10b981' },
+    { id: '2', name: 'Anonymous_42', avatar: '🕵️', time: '2 hours ago', content: '🔓 Encrypted routing updated. Stay safe.', color: '#6366f1' },
+    { id: '3', name: 'Inklab Admin', avatar: 'I', time: '5 hours ago', content: '🎙️ Join our community debate at 8 PM tonight!', color: '#ff4d4d' },
+  ])
+  const [newStatusText, setNewStatusText] = useState('')
   const [starredMessages, setStarredMessages] = useState([])
   const [postContent, setPostContent] = useState('')
   const [postType, setPostType] = useState('text')
@@ -73,6 +108,13 @@ export default function App() {
   const [isAnonymous, setIsAnonymous] = useState(false)
   const [referCode, setReferCode] = useState('')
   const [posting, setPosting] = useState(false)
+
+  // Comments and Saves states
+  const [savedPostIds, setSavedPostIds] = useState([])
+  const [showCommentsModal, setShowCommentsModal] = useState(false)
+  const [activeCommentsPost, setActiveCommentsPost] = useState(null)
+  const [newCommentText, setNewCommentText] = useState('')
+  const [commenting, setCommenting] = useState(false)
 
   // Smart URL preview states
   const [urlPreview, setUrlPreview] = useState(null) // { title, description, image, url }
@@ -118,6 +160,7 @@ export default function App() {
   const [passcodePin, setPasscodePin] = useState('')
   const [passkeyEnabled, setPasskeyEnabled] = useState(false)
   const [inboxSearchQuery, setInboxSearchQuery] = useState('')
+  const [socialSearchQuery, setSocialSearchQuery] = useState('')
   const [activeDevices, setActiveDevices] = useState([
     { id: '1', name: 'Windows 11 PC (Chrome)', location: 'Karachi, PK', status: 'Active Now' },
     { id: '2', name: 'iPhone 15 Pro Max', location: 'Islamabad, PK', status: 'Last active 2 hrs ago' },
@@ -449,6 +492,31 @@ export default function App() {
   const [usernameText, setUsernameText] = useState('')
   const [birthdayText, setBirthdayText] = useState('')
 
+  // ── Separate Profiles for Chat and Social Mode ──
+  const [chatUsername, setChatUsername] = useState('chat_user')
+  const [chatAvatar, setChatAvatar] = useState('💬')
+  const [chatBio, setChatBio] = useState('Secure chat profile 🔐')
+
+  const [socialUsername, setSocialUsername] = useState('social_user')
+  const [socialAvatar, setSocialAvatar] = useState('🌐')
+  const [socialBio, setSocialBio] = useState('Social life on VOID 🌟')
+
+  const [tempAvatar, setTempAvatar] = useState('')
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+
+  const handleOpenAccountSettings = () => {
+    if (appMode === 'chat') {
+      setUsernameText(chatUsername)
+      setBioText(chatBio)
+      setTempAvatar(chatAvatar)
+    } else {
+      setUsernameText(socialUsername)
+      setBioText(socialBio)
+      setTempAvatar(socialAvatar)
+    }
+    setShowAccountModal(true)
+  }
+
   // Streak States
   const [showStreak, setShowStreak] = useState(false)
   const [users, setUsers] = useState([])
@@ -487,14 +555,26 @@ export default function App() {
         const savedFirst = await AsyncStorage.getItem('user_first_name')
         const savedLast = await AsyncStorage.getItem('user_last_name')
         const savedBirth = await AsyncStorage.getItem('user_birthday')
-        const savedBio = await AsyncStorage.getItem('user_bio')
-        const savedUser = await AsyncStorage.getItem('user_custom_username')
+        
+        const savedChatUser = await AsyncStorage.getItem('chat_username')
+        const savedChatBio = await AsyncStorage.getItem('chat_bio')
+        const savedChatAvatar = await AsyncStorage.getItem('chat_avatar')
+
+        const savedSocialUser = await AsyncStorage.getItem('social_username')
+        const savedSocialBio = await AsyncStorage.getItem('social_bio')
+        const savedSocialAvatar = await AsyncStorage.getItem('social_avatar')
 
         if (savedFirst) setFirstName(savedFirst)
         if (savedLast) setLastName(savedLast)
         if (savedBirth) setBirthdayText(savedBirth)
-        if (savedBio) setBioText(savedBio)
-        if (savedUser) setUsernameText(savedUser)
+
+        if (savedChatUser) setChatUsername(savedChatUser)
+        if (savedChatBio) setChatBio(savedChatBio)
+        if (savedChatAvatar) setChatAvatar(savedChatAvatar)
+
+        if (savedSocialUser) setSocialUsername(savedSocialUser)
+        if (savedSocialBio) setSocialBio(savedSocialBio)
+        if (savedSocialAvatar) setSocialAvatar(savedSocialAvatar)
 
         // Load Data & Storage & Chat Folder states
         const savedCache = await AsyncStorage.getItem('storage_cache_size')
@@ -700,17 +780,23 @@ export default function App() {
       await AsyncStorage.setItem('user_first_name', firstName)
       await AsyncStorage.setItem('user_last_name', lastName)
       await AsyncStorage.setItem('user_birthday', birthdayText)
-      await AsyncStorage.setItem('user_bio', bioText)
-      await AsyncStorage.setItem('user_custom_username', usernameText)
 
-      // Also update local state
-      if (currentUser) {
-        setCurrentUser(prev => ({
-          ...prev,
-          username: usernameText,
-          bio: bioText
-        }))
+      if (appMode === 'chat') {
+        await AsyncStorage.setItem('chat_username', usernameText)
+        await AsyncStorage.setItem('chat_bio', bioText)
+        await AsyncStorage.setItem('chat_avatar', tempAvatar)
+        setChatUsername(usernameText)
+        setChatBio(bioText)
+        setChatAvatar(tempAvatar)
+      } else {
+        await AsyncStorage.setItem('social_username', usernameText)
+        await AsyncStorage.setItem('social_bio', bioText)
+        await AsyncStorage.setItem('social_avatar', tempAvatar)
+        setSocialUsername(usernameText)
+        setSocialBio(bioText)
+        setSocialAvatar(tempAvatar)
       }
+
       Alert.alert('Success', 'Profile saved successfully!')
       setShowAccountModal(false)
     } catch (e) {
@@ -854,6 +940,7 @@ export default function App() {
       setCurrentUserBlockedList(res.data.user.blockedUsers || [])
       setCurrentUser(res.data.user)
       setIsPremiumUser(!!res.data.user.isPremium)
+      setSavedPostIds(res.data.user.savedPosts || [])
 
       // Sync cloud preferences with local state and AsyncStorage
       const { starredMessages, lockedChats, secretFolderPin } = res.data.user
@@ -1036,6 +1123,123 @@ export default function App() {
     }
   }
 
+  const handlePostStatus = () => {
+    if (!newStatusText.trim()) return
+    const newStatus = {
+      id: Date.now().toString(),
+      name: `@${currentUser?.username || 'You'}`,
+      avatar: (currentUser?.username?.[0] || 'Y').toUpperCase(),
+      time: 'Just now',
+      content: newStatusText,
+      color: '#c8ff00'
+    }
+    setMockStatuses([newStatus, ...mockStatuses])
+    setNewStatusText('')
+    Alert.alert('Success', 'Status updated successfully! 🔥')
+  }
+
+  const handleSyncContacts = async () => {
+    setShowContactsSyncModal(true)
+    setSyncingContacts(true)
+    try {
+      const { status } = await Contacts.requestPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Contacts access is required to find your friends on VOID CHAT.')
+        setSyncingContacts(false)
+        return
+      }
+
+      let currentUsers = users
+      if (currentUsers.length === 0) {
+        const res = await getUsers()
+        currentUsers = res.data.users || []
+        setUsers(currentUsers)
+      }
+
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers],
+      })
+
+      const matched = []
+
+      if (data && data.length > 0) {
+        data.forEach(deviceContact => {
+          if (!deviceContact.phoneNumbers || deviceContact.phoneNumbers.length === 0) return
+
+          deviceContact.phoneNumbers.forEach(pn => {
+            if (!pn.number) return
+            const cleanPn = pn.number.replace(/\D/g, '')
+
+            currentUsers.forEach(regUser => {
+              if (!regUser.email) return
+              const cleanRegEmail = regUser.email.trim().replace(/\D/g, '')
+              
+              if (cleanRegEmail.length >= 7 && cleanPn.endsWith(cleanRegEmail)) {
+                if (!matched.some(m => m.user._id === regUser._id)) {
+                  matched.push({
+                    deviceName: deviceContact.name,
+                    user: regUser,
+                    matchedNumber: pn.number
+                  })
+                }
+              }
+            })
+          })
+        })
+      }
+
+      setMatchedContacts(matched)
+    } catch (err) {
+      console.error('Contacts sync error:', err)
+      Alert.alert('Error', 'Failed to read contacts.')
+    } finally {
+      setSyncingContacts(false)
+    }
+  }
+
+  const handleSavePost = async (postId) => {
+    try {
+      const res = await savePost(postId)
+      Alert.alert(res.data.isSaved ? '💾 Saved' : '🗑️ Unsaved', res.data.message)
+      loadBlockedUsers()
+    } catch (e) {
+      Alert.alert('Error', 'Could not save post.')
+    }
+  }
+
+  const handleSharePost = async (post) => {
+    try {
+      const content = `${post.isAnonymous ? 'Anonymous' : `@${post.user?.username || 'User'}`}: "${post.content}"\n\nShared from VOID CHAT 🔓`
+      await Share.share({
+        message: content,
+      })
+    } catch (e) {
+      console.warn('Share error:', e)
+    }
+  }
+
+  const handleAddComment = async () => {
+    if (!newCommentText.trim() || !activeCommentsPost) return
+    setCommenting(true)
+    try {
+      const targetId = activeCommentsPost._id || activeCommentsPost.id
+      await commentPost(targetId, { text: newCommentText })
+      setNewCommentText('')
+      
+      const feedRes = await getFeed()
+      const updatedPost = feedRes.data.posts.find(p => (p._id || p.id) === targetId)
+      if (updatedPost) {
+        setActiveCommentsPost(updatedPost)
+      }
+      loadFeed()
+      loadBalance()
+    } catch (e) {
+      Alert.alert('Error', 'Could not post comment.')
+    } finally {
+      setCommenting(false)
+    }
+  }
+
   const handleToggleBlock = async (userId, username) => {
     if (!userId) return
     const isCurrentlyBlocked = currentUserBlockedList.includes(userId)
@@ -1098,671 +1302,925 @@ export default function App() {
 
   const visibleChatModeChats = chatModeChats.filter(chat => !secretChatIds.includes(chat.id))
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
-
-      {/* Header */}
-      <View style={styles.headerWrapper}>
-        {/* Row 1: Logo + Coins + Bell */}
-        <View style={styles.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={[styles.logo, isPremiumUser && { color: appIconPreset === 'gold' ? '#ffd700' : (appIconPreset === 'holo' ? '#00ffff' : (appIconPreset === 'cyber' ? '#ec4899' : '#ffd700')) }]}>
-              {isPremiumUser ? (appIconPreset === 'gold' ? 'VOID GOLD' : (appIconPreset === 'holo' ? 'VOID HOLO' : (appIconPreset === 'cyber' ? 'VOID CYBER' : 'VOID'))) : 'VOID'}
-            </Text>
-            {isPremiumUser && (
-              <Text style={{ fontSize: 13 }}>👑</Text>
-            )}
+  const renderHeader = (showMoreOptions = true) => (
+    <View style={[styles.header, { backgroundColor: theme.bg }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={[styles.logo, isPremiumUser && { color: appIconPreset === 'gold' ? '#ffd700' : (appIconPreset === 'holo' ? '#00ffff' : (appIconPreset === 'cyber' ? '#ec4899' : '#ffd700')) }]}>
+          {isPremiumUser ? (appIconPreset === 'gold' ? 'VOID GOLD' : (appIconPreset === 'holo' ? 'VOID HOLO' : (appIconPreset === 'cyber' ? 'VOID CYBER' : 'VOID'))) : 'VOID'}
+        </Text>
+        {isPremiumUser && (
+          <Text style={{ fontSize: 13 }}>👑</Text>
+        )}
+      </View>
+      <View style={styles.headerRight}>
+        <TouchableOpacity onPress={() => setShowWallet(true)} activeOpacity={0.85}>
+          <View style={styles.VOIDBadge}>
+            <Icon name="bolt" size={14} color="#c8ff00" />
+            <Text style={styles.VOIDText}>{VOIDBalance}</Text>
           </View>
-          <View style={styles.headerRight}>
-            <TouchableOpacity onPress={() => setShowWallet(true)} activeOpacity={0.85}>
-              <View style={styles.VOIDBadge}>
-                <Icon name="bolt" size={14} color="#c8ff00" />
-                <Text style={styles.VOIDText}>{VOIDBalance}</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowNotifs(true)} style={styles.notifIconBtn}>
-              <Icon name="notifications" size={22} color="#9ca3af" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                Alert.alert(
-                  'Void Settings',
-                  'Select an action:',
-                  [
-                    { text: '👥 New Group', onPress: () => setShowCreateGroupModal(true) },
-                    { text: '🌐 New Community', onPress: () => Alert.alert('New Community', 'Community creation is currently in invite-only beta.') },
-                    { text: '📢 Broadcast List', onPress: () => Alert.alert('Broadcast List', 'Create a broadcast list to send messages to multiple users at once.') },
-                    { text: '💻 Linked Devices', onPress: () => setShowDevicesModal(true) },
-                    { text: '⭐ Starred Messages', onPress: async () => {
-                      try {
-                        const stored = await AsyncStorage.getItem('starred_messages') || '[]'
-                        setStarredMessages(JSON.parse(stored))
-                      } catch (e) {}
-                      setShowStarredModal(true)
-                    }},
-                    { text: 'Cancel', style: 'cancel' }
-                  ]
-                )
-              }}
-              style={{ padding: 4, marginLeft: 6 }}
-            >
-              <Icon name="more_vert" size={22} color="#9ca3af" />
-            </TouchableOpacity>
-          </View>
-        </View>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setShowNotifs(true)} style={styles.notifIconBtn}>
+          <Icon name="notifications" size={22} color="#9ca3af" />
+        </TouchableOpacity>
+        {showMoreOptions && (
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(
+                'Void Settings',
+                'Select an action:',
+                [
+                  { text: '👥 New Group', onPress: () => setShowCreateGroupModal(true) },
+                  { text: '🌐 New Community', onPress: () => Alert.alert('New Community', 'Community creation is currently in invite-only beta.') },
+                  { text: '📢 Broadcast List', onPress: () => Alert.alert('Broadcast List', 'Create a broadcast list to send messages to multiple users at once.') },
+                  { text: '💻 Linked Devices', onPress: () => setShowDevicesModal(true) },
+                  { text: '⭐ Starred Messages', onPress: async () => {
+                    try {
+                      const stored = await AsyncStorage.getItem('starred_messages') || '[]'
+                      setStarredMessages(JSON.parse(stored))
+                    } catch (e) {}
+                    setShowStarredModal(true)
+                  }},
+                  { text: 'Cancel', style: 'cancel' }
+                ]
+              )
+            }}
+            style={{ padding: 4, marginLeft: 6 }}
+          >
+            <Icon name="more_vert" size={22} color="#9ca3af" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  )
 
-        {/* Row 2: Mode Toggle — always full width */}
-        <View style={styles.modeToggleRow}>
-          <TouchableOpacity
-            style={[styles.modeToggleFullBtn, appMode === 'chat' && styles.modeToggleFullActive]}
-            onPress={() => handleModeChange('chat')}
-            activeOpacity={0.85}
-          >
-            <Icon name="chat" size={16} color={appMode === 'chat' ? '#c8ff00' : '#6b7280'} />
-            <Text style={[styles.modeToggleFullText, appMode === 'chat' && { color: '#c8ff00' }]}>Chat</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeToggleFullBtn, appMode === 'social' && styles.modeToggleFullActive]}
-            onPress={() => handleModeChange('social')}
-            activeOpacity={0.85}
-          >
-            <Icon name="public" size={16} color={appMode === 'social' ? '#c8ff00' : '#6b7280'} />
-            <Text style={[styles.modeToggleFullText, appMode === 'social' && { color: '#c8ff00' }]}>Social</Text>
-          </TouchableOpacity>
-        </View>
+  const renderFeedContent = () => (
+    <View style={{ flex: 1 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
+        <TextInput
+          style={{
+            backgroundColor: theme.cardBg,
+            color: theme.text,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: theme.border,
+            fontSize: 13
+          }}
+          placeholder="🔍 Search users on Social..."
+          placeholderTextColor="#4b5563"
+          value={socialSearchQuery}
+          onChangeText={setSocialSearchQuery}
+        />
       </View>
 
-      {/* Main Content */}
-      <View style={{ flex: 1 }}>
-
-        {/* FEED */}
-        {activeTab === 'feed' && (
-          <View style={{ flex: 1 }}>
-            <ScrollView style={styles.content}>
-              {posts.length === 0 ? (
-                <View style={styles.emptyFeed}>
-                  <Icon name="lock_open" size={52} color="#2a2a3a" style={styles.emptyIcon} />
-                  <Text style={styles.emptyText}>
-                    Make your first post — earn 40 VOID!
+      <ScrollView style={styles.content}>
+        {socialSearchQuery.trim() !== '' ? (
+          <View style={{ padding: 16, gap: 12 }}>
+            <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800' }}>Matched Social Users</Text>
+            {users.filter(u => (u.username || u.name || '').toLowerCase().includes(socialSearchQuery.toLowerCase())).map(user => (
+              <TouchableOpacity
+                key={user._id || user.id}
+                style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.border, borderWidth: 1, borderRadius: 14, padding: 12 }]}
+                onPress={() => {
+                  setSelectedUserProfile(user)
+                  setSocialSearchQuery('')
+                }}
+              >
+                <View style={[styles.chatAvatar, { backgroundColor: theme.primary }]}>
+                  <Text style={[styles.avatarText, { color: '#000' }]}>
+                    {(user.username || user.name || 'U')[0].toUpperCase()}
                   </Text>
-                  <TouchableOpacity
-                    style={styles.emptyBtn}
-                    onPress={() => setShowCreate(true)}
-                  >
-                    <Text style={styles.emptyBtnText}>Post Now</Text>
-                  </TouchableOpacity>
                 </View>
-              ) : (
-                posts.map(post => (
-                  <View key={post._id} style={styles.post}>
-                    <View style={styles.postHeader}>
-                      <TouchableOpacity 
-                        style={[styles.avatar, {
-                          backgroundColor: post.isAnonymous ? '#374151' : (isPostAuthorPremium(post) ? '#ffd700' : '#6366f1'),
-                          borderWidth: (isPostAuthorPremium(post) && !post.isAnonymous) ? 2 : 0,
-                          borderColor: '#ffd700'
-                        }]}
-                        onPress={() => {
-                          if (post.isAnonymous) {
-                            setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
-                          } else if (post.user) {
-                            setSelectedUserProfile(post.user)
-                          }
-                        }}
-                      >
-                        <Text style={[styles.avatarText, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#050608', fontWeight: '900' }]}>
-                          {post.isAnonymous ? '?' :
-                            post.user?.username?.[0]?.toUpperCase() || 'U'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={styles.postMeta}
-                        onPress={() => {
-                          if (post.isAnonymous) {
-                            setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
-                          } else if (post.user) {
-                            setSelectedUserProfile(post.user)
-                          }
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Text style={[styles.username, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#ffd700', fontWeight: '800' }]}>
-                            {post.isAnonymous ? '🕵️ Anonymous' : `@${post.user?.username}`}
-                          </Text>
-                          {(isPostAuthorPremium(post) && !post.isAnonymous) && (
-                            <Text style={{ fontSize: 11 }}>👑</Text>
-                          )}
-                        </View>
-                        <Text style={styles.postTime}>🔐 Encrypted</Text>
-                      </TouchableOpacity>
-                      <View style={styles.VOIDEarned}>
-                        <Text style={styles.VOIDEarnedText}>
-                          +{post.VOIDEarned} VOID
-                        </Text>
-                      </View>
-                    </View>
-                    {post.content ? (
-                      <Text style={styles.postContent}>{post.content}</Text>
-                    ) : null}
-  
-                    {/* 🖼️ Render Image Post */}
-                    {post.postType === 'image' && post.mediaUrl ? (
-                      <View style={styles.mediaContainer}>
-                        <Image
-                          source={{ uri: post.mediaUrl }}
-                          style={styles.postImage}
-                          resizeMode="cover"
-                        />
-                      </View>
-                    ) : null}
-  
-                    {/* 🎥 Render Video Post */}
-                    {post.postType === 'video' && post.mediaUrl ? (
-                      <TouchableOpacity 
-                        style={styles.videoPlayerCard}
-                        activeOpacity={0.9}
-                        onPress={() => handleOpenLink(post.mediaUrl)}
-                      >
-                        <View style={styles.videoPlayerPlaceholder}>
-                          <Icon name="smart_display" size={42} color="#6b7280" />
-                          <Text style={styles.videoPlayText}>Tap to Open Video</Text>
-                          <View style={styles.playButtonOverlay}>
-                            <Text style={styles.playButtonText}>▶</Text>
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    ) : null}
-  
-                    {/* 🔗 Render Link Post */}
-                    {post.postType === 'link' && post.linkUrl ? (
-                      <TouchableOpacity
-                        style={styles.linkCard}
-                        activeOpacity={0.8}
-                        onPress={() => handleOpenLink(post.linkUrl)}
-                      >
-                        <View style={styles.linkIconContainer}>
-                          <Text style={styles.linkIconEmoji}>🔗</Text>
-                        </View>
-                        <View style={styles.linkMeta}>
-                          <Text style={styles.linkUrlText} numberOfLines={1}>
-                            {post.linkUrl}
-                          </Text>
-                          <Text style={styles.linkTapText}>Tap to open link ↗</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ) : null}
-  
-                    <View style={styles.postActions}>
-                      {/* Like Button */}
-                      <TouchableOpacity
-                        style={[styles.actionBtn, (post.likes?.length > 0) && styles.actionBtnLiked]}
-                        onPress={() => handleLike(post._id)}
-                        activeOpacity={0.75}
-                      >
-                        <Icon
-                          name={post.likes?.length > 0 ? 'favorite' : 'favorite_border'}
-                          size={18}
-                          color={post.likes?.length > 0 ? '#f87171' : '#6b7280'}
-                        />
-                        <Text style={[styles.actionCount, post.likes?.length > 0 && styles.actionCountLiked]}>
-                          {post.likes?.length || 0}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {/* Comment Button */}
-                      <TouchableOpacity style={styles.actionBtn} activeOpacity={0.75}>
-                        <Icon name="chat_bubble_outline" size={17} color="#6b7280" />
-                        <Text style={styles.actionCount}>{post.comments?.length || 0}</Text>
-                      </TouchableOpacity>
-
-                      {/* Share Button */}
-                      <TouchableOpacity style={styles.actionBtn} activeOpacity={0.75}>
-                        <Icon name="share" size={17} color="#6b7280" />
-                        <Text style={styles.actionCount}>Share</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-  
-            {/* Floating Post Button */}
+                <View style={styles.chatInfo}>
+                  <Text style={[styles.chatName, { color: theme.text }]}>@{user.username || user.name}</Text>
+                  <Text style={{ color: theme.subText, fontSize: 11, marginTop: 2 }}>🌐 Social Profile</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : posts.length === 0 ? (
+          <View style={styles.emptyFeed}>
+            <Icon name="lock_open" size={52} color="#2a2a3a" style={styles.emptyIcon} />
+            <Text style={styles.emptyText}>
+              Make your first post — earn 40 VOID!
+            </Text>
             <TouchableOpacity
-              style={styles.floatingCreateBtn}
-              activeOpacity={0.85}
-              onPress={() => {
-                setPostType('text')
-                setShowCreate(true)
-              }}
+              style={styles.emptyBtn}
+              onPress={() => setShowCreate(true)}
             >
-              {/* Premium post button: outer ring + inner circle + label */}
-              <View style={styles.fabRing}>
-                <View style={styles.fabInner}>
-                  <Text style={styles.fabPlus}>+</Text>
-                </View>
-              </View>
-              <Text style={styles.fabLabel}>Post</Text>
+              <Text style={styles.emptyBtnText}>Post Now</Text>
             </TouchableOpacity>
           </View>
-        )}
-
-        {/* REELS */}
-        {activeTab === 'reels' && <ReelsScreen />}
-
-        {/* INBOX */}
-        {activeTab === 'inbox' && (
-          <View style={{ flex: 1 }}>
-            {appMode === 'chat' ? (
-              <View style={{ flex: 1 }}>
-                {/* WhatsApp Style Tab bar with Three Dots Menu */}
-                <View style={{ flexDirection: 'row', backgroundColor: '#0a0a0f', borderBottomWidth: 1, borderBottomColor: '#1e1e2d', alignItems: 'center' }}>
-                  <TouchableOpacity
-                    style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'chats' ? 2 : 0, borderBottomColor: '#c8ff00' }}
-                    onPress={() => setChatInboxTab('chats')}
-                  >
-                    <Text style={{ color: chatInboxTab === 'chats' ? '#c8ff00' : '#8b8ba7', fontWeight: '800', fontSize: 14 }}>CHATS</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{
-                      paddingHorizontal: 16,
-                      paddingVertical: 12,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={() => {
-                      setShowChatOptionsMenu(true)
-                    }}
-                  >
-                    <Icon name="more_vert" size={22} color="#f9fafb" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Search Bar for Hidden Vault Check */}
-                <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#0a0a0f' }}>
-                  <TextInput
-                    style={{
-                      backgroundColor: '#13131a',
-                      color: '#fff',
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: '#1e1e2d',
-                      fontSize: 13
-                    }}
-                    placeholder="Search chats..."
-                    placeholderTextColor="#4b5563"
-                    value={inboxSearchQuery}
-                    onChangeText={setInboxSearchQuery}
-                  />
-                </View>
-
-                {chatInboxTab === 'chats' ? (
-                  <ScrollView style={styles.content}>
-                    {/* Secret Vault Shortcut Row: ONLY visible if the search query exactly matches the secretFolderPin (or if no PIN is set, query is 'vault') */}
-                    {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
-                      <TouchableOpacity
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          padding: 16,
-                          backgroundColor: '#0a0a0f',
-                          borderBottomWidth: 1,
-                          borderBottomColor: '#1e1e2c',
-                          gap: 14,
-                          marginHorizontal: 12,
-                          marginVertical: 12,
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: '#c8ff0020'
-                        }}
-                        onPress={() => {
-                          setFolderAuthAction('open_folder')
-                          if (!secretFolderPin) {
-                            setPinSetupStep(1)
-                            setTempPinSetup('')
-                            setAuthError('')
-                            setShowFolderAuthModal(true)
-                          } else {
-                            setFolderAuthPinInput('')
-                            setAuthError('')
-                            setShowFolderAuthModal(true)
-                          }
-                        }}
-                      >
-                        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
-                          <Icon name="lock" size={18} color="#c8ff00" forceEmoji={true} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: '#f0f0ff', fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
-                          <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 1 }}>Locked and encrypted chats</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
-                          <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
-                        </View>
-                      </TouchableOpacity>
-                    )}
-
-
-                    {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => (
-                      <TouchableOpacity
-                        key={chat.id}
-                        style={styles.chatItem}
-                        onPress={() => setShowChat(chat)}
-                        onLongPress={() => {
-                          Alert.alert(
-                            '🛡️ Secure Chat',
-                            `Do you want to move ${chat.name} to the Secret Vault? It will be hidden from the main chat list.`,
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Move to Vault', style: 'destructive', onPress: () => moveToSecretFolder(chat.id) }
-                            ]
-                          )
-                        }}
-                      >
-                        <View style={{ position: 'relative' }}>
-                          <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
-                            <Text style={styles.avatarText}>{chat.avatar || chat.name[0]}</Text>
-                          </View>
-                          {chat.streak > 0 && (
-                            <View style={styles.streakBadge}>
-                              <Text style={styles.streakBadgeText}>
-                                🔥{chat.streak}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={styles.chatInfo}>
-                          <Text style={styles.chatName}>{chat.name}</Text>
-                          <Text style={{ color: '#8b8ba7', fontSize: 12, marginTop: 2 }}>{chat.phoneNumber}</Text>
-                          <Text style={styles.chatLast}>🔐 Encrypted chat</Text>
-                        </View>
-                        {chat.unread > 0 && (
-                          <View style={styles.unreadBadge}>
-                            <Text style={styles.unreadText}>{chat.unread}</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                ) : (
-                  <ScrollView style={styles.content}>
-                    <View style={{ padding: 12, backgroundColor: '#0e0e14', borderBottomWidth: 1, borderBottomColor: '#1e1e2d' }}>
-                      <Text style={{ color: '#8b8ba7', fontSize: 12, fontWeight: '700' }}>Detected Contacts on VOID CHAT</Text>
-                    </View>
-                    {users.filter(u => (u.username || u.name || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(user => (
-                      <TouchableOpacity
-                        key={user._id || user.id}
-                        style={styles.chatItem}
-                        onPress={() => setShowChat({
-                          id: user._id || user.id,
-                          name: `@${user.username || user.name}`,
-                          color: '#6366f1'
-                        })}
-                      >
-                        <View style={[styles.chatAvatar, { backgroundColor: '#6366f1' }]}>
-                          <Text style={styles.avatarText}>{(user.username || user.name || 'U')[0].toUpperCase()}</Text>
-                        </View>
-                        <View style={styles.chatInfo}>
-                          <Text style={styles.chatName}>@{user.username || user.name}</Text>
-                          <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>📱 Registered Contact</Text>
-                        </View>
-                        <Text style={{ color: '#c8ff00', fontSize: 12, fontWeight: '800', marginRight: 16 }}>Message</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                )}
-              </View>
-            ) : (
-              <ScrollView style={styles.content}>
-                <View style={styles.adBanner}>
-                  <Text style={styles.adText}>📢 Social DMs & Updates</Text>
-                </View>
-                {socialModeChats.map(chat => (
-                  <TouchableOpacity
-                    key={chat.id}
-                    style={styles.chatItem}
-                    onPress={() => setShowChat(chat)}
-                  >
-                    <View style={{ position: 'relative' }}>
-                      <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
-                        <Text style={styles.avatarText}>{chat.name[0]}</Text>
-                      </View>
-                      {chat.streak > 0 && (
-                        <View style={styles.streakBadge}>
-                          <Text style={styles.streakBadgeText}>
-                            🔥{chat.streak}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.chatInfo}>
-                      <Text style={styles.chatName}>{chat.name}</Text>
-                      <Text style={styles.chatLast}>🔐 Social Chat Message</Text>
-                    </View>
-                    {chat.unread > 0 && (
-                      <View style={styles.unreadBadge}>
-                        <Text style={styles.unreadText}>{chat.unread}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* SETTINGS */}
-        {activeTab === 'settings' && (
-          <ScrollView style={styles.content}>
-            <View style={{ padding: 16, gap: 16 }}>
-              {/* Profile Card Header in Settings */}
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: isPremiumUser ? '#1a1600' : '#0e0e14',
-                padding: 16,
-                borderRadius: 20,
-                borderWidth: 1,
-                borderColor: isPremiumUser ? '#ffd70040' : '#1e1e2c',
-                gap: 14
-              }}>
-                <View style={{
-                  width: 50,
-                  height: 50,
-                  borderRadius: 25,
-                  backgroundColor: isPremiumUser ? '#ffd700' : '#c8ff00',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  borderWidth: isPremiumUser ? 2 : 0,
-                  borderColor: '#fff'
-                }}>
-                  <Text style={{ fontSize: 22, fontWeight: '900', color: '#050608' }}>
-                    {isPremiumUser ? '👑' : 'M'}
+        ) : (
+          posts.map(post => (
+            <View key={post._id} style={[styles.post, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+              <View style={styles.postHeader}>
+                <TouchableOpacity 
+                  style={[styles.avatar, {
+                    backgroundColor: post.isAnonymous ? '#374151' : (isPostAuthorPremium(post) ? '#ffd700' : '#6366f1'),
+                    borderWidth: (isPostAuthorPremium(post) && !post.isAnonymous) ? 2 : 0,
+                    borderColor: '#ffd700'
+                  }]}
+                  onPress={() => {
+                    if (post.isAnonymous) {
+                      setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
+                    } else if (post.user) {
+                      setSelectedUserProfile(post.user)
+                    }
+                  }}
+                >
+                  <Text style={[styles.avatarText, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#050608', fontWeight: '900' }]}>
+                    {post.isAnonymous ? '?' :
+                      post.user?.username?.[0]?.toUpperCase() || 'U'}
                   </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ color: isPremiumUser ? '#ffd700' : '#f0f0ff', fontWeight: '800', fontSize: 16 }}>
-                      @my_voidchat
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.postMeta}
+                  onPress={() => {
+                    if (post.isAnonymous) {
+                      setSelectedUserProfile({ _id: post.user?._id || post.user, username: 'Anonymous', isAnonymous: true })
+                    } else if (post.user) {
+                      setSelectedUserProfile(post.user)
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={[styles.username, { color: theme.text }, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#ffd700', fontWeight: '800' }]}>
+                      {post.isAnonymous ? '🕵️ Anonymous' : `@${post.user?.username}`}
                     </Text>
-                    {isPremiumUser && (
-                      <View style={{ backgroundColor: '#ffd70020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 0.5, borderColor: '#ffd70050' }}>
-                        <Text style={{ color: '#ffd700', fontSize: 10, fontWeight: '800' }}>PREMIUM</Text>
-                      </View>
+                    {(isPostAuthorPremium(post) && !post.isAnonymous) && (
+                      <Text style={{ fontSize: 11 }}>👑</Text>
                     )}
                   </View>
-                  <Text style={{ color: isPremiumUser ? '#d4af37' : '#6b7280', fontSize: 12, marginTop: 2 }}>
-                    {isPremiumUser ? '👑 Elite Privacy Shield • Active' : 'Truth first • Privacy first 🔐'}
+                  <Text style={[styles.postTime, { color: theme.subText }]}>🔐 Encrypted</Text>
+                </TouchableOpacity>
+                <View style={styles.VOIDEarned}>
+                  <Text style={styles.VOIDEarnedText}>
+                    +{post.VOIDEarned} VOID
                   </Text>
                 </View>
               </View>
+              {post.content ? (
+                <Text style={[styles.postContent, { color: theme.text }]}>{post.content}</Text>
+              ) : null}
 
-              {/* Settings Menu List */}
-              <View style={{ gap: 10 }}>
-                {[
-                  { icon: 'person', label: t('account'), action: () => { setShowAccountModal(true) } },
-                  { icon: 'chat', label: t('chatSetting'), action: () => { setShowChatSettings(true) } },
-                  { icon: 'security', label: t('privacySecurity'), action: () => { setShowPrivacySettings(true) } },
-                  { icon: 'notifications', label: t('notifications'), action: () => { setShowNotifSettings(true) } },
-                  { icon: 'storage', label: t('dataStorage'), action: () => { setShowDataStorage(true) } },
-                  { icon: 'folder', label: t('vault'), action: () => {
+              {/* 🖼️ Render Image Post */}
+              {post.postType === 'image' && post.mediaUrl ? (
+                <View style={styles.mediaContainer}>
+                  <Image
+                    source={{ uri: post.mediaUrl }}
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                </View>
+              ) : null}
+
+              {/* 🎥 Render Video Post */}
+              {post.postType === 'video' && post.mediaUrl ? (
+                <TouchableOpacity 
+                  style={styles.videoPlayerCard}
+                  activeOpacity={0.9}
+                  onPress={() => handleOpenLink(post.mediaUrl)}
+                >
+                  <View style={styles.videoPlayerPlaceholder}>
+                    <Icon name="smart_display" size={42} color="#6b7280" />
+                    <Text style={styles.videoPlayText}>Tap to Open Video</Text>
+                    <View style={styles.playButtonOverlay}>
+                      <Text style={styles.playButtonText}>▶</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+
+              {/* 🔗 Render Link Post */}
+              {post.postType === 'link' && post.linkUrl ? (
+                <TouchableOpacity
+                  style={styles.linkCard}
+                  activeOpacity={0.8}
+                  onPress={() => handleOpenLink(post.linkUrl)}
+                >
+                  <View style={styles.linkIconContainer}>
+                    <Text style={styles.linkIconEmoji}>🔗</Text>
+                  </View>
+                  <View style={styles.linkMeta}>
+                    <Text style={styles.linkUrlText} numberOfLines={1}>
+                      {post.linkUrl}
+                    </Text>
+                    <Text style={styles.linkTapText}>Tap to open link ↗</Text>
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+
+              <View style={styles.postActions}>
+                {/* Like Button */}
+                <TouchableOpacity
+                  style={[styles.actionBtn, (post.likes?.length > 0) && styles.actionBtnLiked]}
+                  onPress={() => handleLike(post._id)}
+                  activeOpacity={0.75}
+                >
+                  <Icon
+                    name={post.likes?.length > 0 ? 'favorite' : 'favorite_border'}
+                    size={18}
+                    color={post.likes?.length > 0 ? '#f87171' : '#6b7280'}
+                  />
+                  <Text style={[styles.actionCount, post.likes?.length > 0 && styles.actionCountLiked]}>
+                    {post.likes?.length || 0}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Comment Button */}
+                <TouchableOpacity 
+                  style={styles.actionBtn} 
+                  onPress={() => {
+                    setActiveCommentsPost(post)
+                    setShowCommentsModal(true)
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Icon name="chat_bubble_outline" size={17} color="#6b7280" />
+                  <Text style={styles.actionCount}>{post.comments?.length || 0}</Text>
+                </TouchableOpacity>
+
+                {/* Share Button */}
+                <TouchableOpacity 
+                  style={styles.actionBtn} 
+                  onPress={() => handleSharePost(post)}
+                  activeOpacity={0.75}
+                >
+                  <Icon name="share" size={17} color="#6b7280" />
+                  <Text style={styles.actionCount}>Share</Text>
+                </TouchableOpacity>
+
+                {/* Save Button */}
+                <TouchableOpacity 
+                  style={styles.actionBtn} 
+                  onPress={() => handleSavePost(post._id || post.id)} 
+                  activeOpacity={0.75}
+                >
+                  <Icon
+                    name={savedPostIds.includes(post._id || post.id) ? 'bookmark' : 'bookmark_border'}
+                    size={17}
+                    color={savedPostIds.includes(post._id || post.id) ? theme.primary : '#6b7280'}
+                  />
+                  <Text style={[styles.actionCount, savedPostIds.includes(post._id || post.id) && { color: theme.primary }]}>
+                    {savedPostIds.includes(post._id || post.id) ? 'Saved' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Floating Post Button */}
+      <TouchableOpacity
+        style={styles.floatingCreateBtn}
+        activeOpacity={0.85}
+        onPress={() => {
+          setPostType('text')
+          setShowCreate(true)
+        }}
+      >
+        {/* Premium post button: outer ring + inner circle + label */}
+        <View style={styles.fabRing}>
+          <View style={styles.fabInner}>
+            <Text style={styles.fabPlus}>+</Text>
+          </View>
+        </View>
+        <Text style={styles.fabLabel}>Post</Text>
+      </TouchableOpacity>
+    </View>
+  )
+
+  const renderInboxContent = () => (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {appMode === 'chat' ? (
+        <View style={{ flex: 1 }}>
+          {/* WhatsApp Style Tab bar with Three Dots Menu */}
+          <View style={{ flexDirection: 'row', backgroundColor: theme.cardBg, borderBottomWidth: 1, borderBottomColor: theme.border, alignItems: 'center' }}>
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'chats' ? 2 : 0, borderBottomColor: theme.primary }}
+              onPress={() => setChatInboxTab('chats')}
+            >
+              <Text style={{ color: chatInboxTab === 'chats' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 14 }}>CHATS</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'status' ? 2 : 0, borderBottomColor: theme.primary }}
+              onPress={() => setChatInboxTab('status')}
+            >
+              <Text style={{ color: chatInboxTab === 'status' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 14 }}>STATUS</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={() => {
+                setShowChatOptionsMenu(true)
+              }}
+            >
+              <Icon name="more_vert" size={22} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar for Hidden Vault Check */}
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.bg }}>
+            <TextInput
+              style={{
+                backgroundColor: theme.cardBg,
+                color: theme.text,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.border,
+                fontSize: 13
+              }}
+              placeholder="Search chats..."
+              placeholderTextColor="#4b5563"
+              value={inboxSearchQuery}
+              onChangeText={setInboxSearchQuery}
+            />
+          </View>
+
+          {chatInboxTab === 'chats' ? (
+            <ScrollView style={styles.content}>
+              {/* Secret Vault Shortcut Row */}
+              {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: theme.cardBg,
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.border,
+                    gap: 14,
+                    marginHorizontal: 12,
+                    marginVertical: 12,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                  }}
+                  onPress={() => {
+                    setFolderAuthAction('open_folder')
                     if (!secretFolderPin) {
                       setPinSetupStep(1)
                       setTempPinSetup('')
                       setAuthError('')
-                      setFolderAuthAction('manage_folder')
                       setShowFolderAuthModal(true)
                     } else {
                       setFolderAuthPinInput('')
                       setAuthError('')
-                      setFolderAuthAction('manage_folder')
                       setShowFolderAuthModal(true)
                     }
-                  } },
-                  { icon: 'devices', label: t('devices'), action: () => { setShowDevicesModal(true) } },
-                  { icon: 'battery_saver', label: t('powerSaving'), action: () => { setShowPowerSavingModal(true) } },
-                  { icon: 'language', label: t('language'), action: () => { setShowLanguageModal(true) } },
-                  { icon: 'star', label: t('premium'), action: () => { setShowPremiumModal(true) }, isPremium: true },
-                  { icon: 'payments', label: t('voidCoins'), action: () => { setShowWallet(true) }, isCoins: true },
-                ].map((item, i) => (
+                  }}
+                >
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDayMode ? '#c8ff0020' : '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
+                    <Icon name="lock" size={18} color={theme.primary} forceEmoji={true} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
+                    <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>Secure folder for personal chats</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
+                    <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+
+
+              {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => (
+                <TouchableOpacity
+                  key={chat.id}
+                  style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
+                  onPress={() => setShowChat(chat)}
+                  onLongPress={() => {
+                    Alert.alert(
+                      '🛡️ Secure Chat',
+                      `Do you want to move ${chat.name} to the Secret Vault? It will be hidden from the main chat list.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Move to Vault', style: 'destructive', onPress: () => moveToSecretFolder(chat.id) }
+                      ]
+                    )
+                  }}
+                >
+                  <View style={{ position: 'relative' }}>
+                    <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
+                      <Text style={[styles.avatarText, { color: '#ffffff' }]}>{chat.avatar || chat.name[0]}</Text>
+                    </View>
+                    {chat.streak > 0 && (
+                      <View style={styles.streakBadge}>
+                        <Text style={styles.streakBadgeText}>
+                          🔥{chat.streak}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.chatInfo}>
+                    <Text style={[styles.chatName, { color: theme.text }]}>{chat.name}</Text>
+                    <Text style={{ color: theme.subText, fontSize: 12, marginTop: 2 }}>{chat.phoneNumber}</Text>
+                    <Text style={[styles.chatLast, { color: theme.subText }]}>🔐 Encrypted chat</Text>
+                  </View>
                   <TouchableOpacity
-                    key={i}
+                    style={{ padding: 10, marginRight: 8, justifyContent: 'center' }}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      Alert.alert(
+                        'Start Call',
+                        `Select Call Type for ${chat.name}:`,
+                        [
+                          { text: '📞 Voice Call', onPress: () => setShowChat(chat) },
+                          { text: '📹 Video Call', onPress: () => setShowChat(chat) },
+                          { text: 'Cancel', style: 'cancel' }
+                        ]
+                      )
+                    }}
+                  >
+                    <Icon name="call" size={20} color="#c8ff00" />
+                  </TouchableOpacity>
+                  {chat.unread > 0 && (
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadText}>{chat.unread}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <ScrollView style={[styles.content, { padding: 16 }]} contentContainerStyle={{ gap: 16 }}>
+              {/* Post New Status */}
+              <View style={{ backgroundColor: theme.cardBg, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.border, gap: 12 }}>
+                <Text style={{ color: theme.primary, fontWeight: '800', fontSize: 14 }}>Post a Status Update</Text>
+                <TextInput
+                  style={{
+                    backgroundColor: theme.bg,
+                    color: theme.text,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    fontSize: 13,
+                    minHeight: 50,
+                    textAlignVertical: 'top'
+                  }}
+                  placeholder="Share what is on your mind..."
+                  placeholderTextColor="#4b5563"
+                  multiline
+                  value={newStatusText}
+                  onChangeText={setNewStatusText}
+                />
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: theme.primary,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    alignItems: 'center'
+                  }}
+                  onPress={handlePostStatus}
+                >
+                  <Text style={{ color: '#050608', fontWeight: '900', fontSize: 13 }}>Share Status 🔥</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Status List */}
+              <View style={{ gap: 12, paddingBottom: 30 }}>
+                <Text style={{ color: theme.subText, fontWeight: '700', fontSize: 12, marginLeft: 4 }}>Recent Updates</Text>
+                {mockStatuses.map(status => (
+                  <View
+                    key={status.id}
                     style={{
                       flexDirection: 'row',
-                      alignItems: 'center',
-                      padding: 16,
-                      backgroundColor: item.isPremium ? '#1c1800' : '#0e0e14',
+                      backgroundColor: theme.cardBg,
                       borderRadius: 16,
-                      gap: 14,
+                      padding: 14,
                       borderWidth: 1,
-                      borderColor: item.isPremium ? '#ffc80050' : '#1e1e2c',
+                      borderColor: theme.border,
+                      alignItems: 'center',
+                      gap: 12
                     }}
-                    onPress={item.action}
                   >
-                    <Icon name={item.icon} size={22} color={item.isPremium ? '#ffc800' : (item.isCoins ? '#c8ff00' : theme.primary)} forceEmoji={true} />
-                    <Text style={{
-                      flex: 1,
-                      color: item.isPremium ? '#ffc800' : '#f0f0ff',
-                      fontSize: 15,
-                      fontWeight: item.isPremium ? '800' : '600',
-                    }}>
-                      {item.label}
-                    </Text>
-                    <Text style={{ color: item.isPremium ? '#ffc800' : '#3a3a5a', fontSize: 18 }}>›</Text>
-                  </TouchableOpacity>
+                    <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20 }]}>
+                      <Text style={[styles.avatarText, { fontSize: 13 }]}>{status.avatar}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
+                        <Text style={{ color: theme.subText, fontSize: 10 }}>{status.time}</Text>
+                      </View>
+                      <Text style={{ color: theme.text, fontSize: 13, marginTop: 4, lineHeight: 18 }}>{status.content}</Text>
+                    </View>
+                  </View>
                 ))}
               </View>
-            </View>
-          </ScrollView>
-        )}
-
-        {/* REFER */}
-        {activeTab === 'refer' && <ReferScreen />}
-
-        {/* PROFILE */}
-        {activeTab === 'profile' && (
-          <ScrollView style={styles.content}>
-            <View style={styles.profileScreen}>
-              <View style={[
-                styles.profileAvatar,
-                isPremiumUser && { borderWidth: 3, borderColor: '#ffd700', shadowColor: '#ffd700', shadowOpacity: 0.8, shadowRadius: 10, elevation: 8 }
-              ]}>
-                <Text style={[styles.profileAvatarText, isPremiumUser && { color: '#ffd700' }]}>
-                  {isPremiumUser ? '👑' : 'M'}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                <Text style={[styles.profileName, isPremiumUser && { color: '#ffd700' }]}>@my_voidchat</Text>
-                {isPremiumUser && (
-                  <View style={{ backgroundColor: '#ffd70020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 0.5, borderColor: '#ffd70050' }}>
-                    <Text style={{ color: '#ffd700', fontSize: 10, fontWeight: '800' }}>PREMIUM</Text>
+            </ScrollView>
+          )}
+        </View>
+      ) : (
+        <ScrollView style={styles.content}>
+          <View style={styles.adBanner}>
+            <Text style={styles.adText}>📢 Social DMs & Updates</Text>
+          </View>
+          {socialModeChats.map(chat => (
+            <TouchableOpacity
+              key={chat.id}
+              style={styles.chatItem}
+              onPress={() => setShowChat(chat)}
+            >
+              <View style={{ position: 'relative' }}>
+                <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
+                  <Text style={styles.avatarText}>{chat.name[0]}</Text>
+                </View>
+                {chat.streak > 0 && (
+                  <View style={styles.streakBadge}>
+                    <Text style={styles.streakBadgeText}>
+                      🔥{chat.streak}
+                    </Text>
                   </View>
                 )}
               </View>
-              <Text style={[styles.profileBio, isPremiumUser && { color: '#d4af37' }]}>
-                {isPremiumUser ? '👑 Elite Privacy Shield • Active' : 'Truth first • Privacy first 🔐'}
-              </Text>
-              <View style={styles.profileStats}>
-                {[
-                  { label: 'Posts', value: posts.length.toString() },
-                  { label: 'Followers', value: '0' },
-                  { label: 'VOID', value: VOIDBalance.toString() },
-                ].map((stat, i) => (
-                  <View key={i} style={styles.statItem}>
-                    <Text style={styles.statValue}>{stat.value}</Text>
-                    <Text style={styles.statLabel}>{stat.label}</Text>
-                  </View>
-                ))}
+              <View style={styles.chatInfo}>
+                <Text style={styles.chatName}>{chat.name}</Text>
+                <Text style={styles.chatLast}>🔐 Social Chat Message</Text>
               </View>
+              {chat.unread > 0 && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadText}>{chat.unread}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  )
 
+  const renderSettingsContent = () => (
+    <ScrollView style={styles.content}>
+      <View style={{ padding: 16, gap: 16 }}>
+        {/* Profile Card Header in Settings */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: isPremiumUser ? '#1a1600' : (isDayMode ? '#ffffff' : '#0e0e14'),
+          padding: 16,
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: isPremiumUser ? '#ffd70040' : (isDayMode ? '#e4e4e7' : '#1e1e2c'),
+          gap: 14
+        }}>
+          <View style={{
+            width: 50,
+            height: 50,
+            borderRadius: 25,
+            backgroundColor: isDayMode ? '#e4e4e7' : '#1e1e2d',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderWidth: isPremiumUser ? 2 : 0,
+            borderColor: '#ffd700'
+          }}>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: theme.text }}>
+              {appMode === 'chat' ? chatAvatar : socialAvatar}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: theme.text, fontWeight: '800', fontSize: 16 }}>
+                @{appMode === 'chat' ? chatUsername : socialUsername}
+              </Text>
+              {isPremiumUser && (
+                <View style={{ backgroundColor: '#ffd70020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 0.5, borderColor: '#ffd70050' }}>
+                  <Text style={{ color: '#ffd700', fontSize: 10, fontWeight: '800' }}>PREMIUM</Text>
+                </View>
+              )}
+            </View>
+            <Text style={{ color: theme.subText, fontSize: 12, marginTop: 2 }}>
+              {appMode === 'chat' ? chatBio : socialBio}
+            </Text>
+          </View>
+        </View>
+
+        {/* Settings Menu List */}
+        <View style={{ gap: 10 }}>
+          {[
+            { icon: 'person', label: t('account'), action: handleOpenAccountSettings },
+            { icon: 'chat', label: t('chatSetting'), action: () => { setShowChatSettings(true) } },
+            { icon: 'security', label: t('privacySecurity'), action: () => { setShowPrivacySettings(true) } },
+            { icon: 'notifications', label: t('notifications'), action: () => { setShowNotifSettings(true) } },
+            { icon: 'storage', label: t('dataStorage'), action: () => { setShowDataStorage(true) } },
+            { icon: 'folder', label: t('vault'), action: () => {
+              if (!secretFolderPin) {
+                setPinSetupStep(1)
+                setTempPinSetup('')
+                setAuthError('')
+                setFolderAuthAction('manage_folder')
+                setShowFolderAuthModal(true)
+              } else {
+                setFolderAuthPinInput('')
+                setAuthError('')
+                setFolderAuthAction('manage_folder')
+                setShowFolderAuthModal(true)
+              }
+            } },
+            { icon: 'devices', label: t('devices'), action: () => { setShowDevicesModal(true) } },
+            { icon: 'battery_saver', label: t('powerSaving'), action: () => { setShowPowerSavingModal(true) } },
+            { icon: 'language', label: t('language'), action: () => { setShowLanguageModal(true) } },
+            { icon: 'star', label: t('premium'), action: () => { setShowPremiumModal(true) }, isPremium: true },
+            { icon: 'payments', label: t('voidCoins'), action: () => { setShowWallet(true) }, isCoins: true },
+          ].map((item, i) => (
+            <TouchableOpacity
+              key={i}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 16,
+                backgroundColor: item.isPremium ? '#1c1800' : '#0e0e14',
+                borderRadius: 16,
+                gap: 14,
+                borderWidth: 1,
+                borderColor: item.isPremium ? '#ffc80050' : '#1e1e2c',
+              }}
+              onPress={item.action}
+            >
+              <Icon name={item.icon} size={22} color={item.isPremium ? '#ffc800' : (item.isCoins ? '#c8ff00' : theme.primary)} forceEmoji={true} />
+              <Text style={{
+                flex: 1,
+                color: item.isPremium ? '#ffc800' : '#f0f0ff',
+                fontSize: 15,
+                fontWeight: item.isPremium ? '800' : '600',
+              }}>
+                {item.label}
+              </Text>
+              <Text style={{ color: item.isPremium ? '#ffc800' : '#3a3a5a', fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  )
+
+  const renderProfileContent = () => {
+    const activeUsername = appMode === 'chat' ? chatUsername : socialUsername
+    const activeAvatar = appMode === 'chat' ? chatAvatar : socialAvatar
+    const activeBio = appMode === 'chat' ? chatBio : socialBio
+
+    return (
+      <ScrollView style={styles.content}>
+        <View style={styles.profileScreen}>
+          <View style={[
+            styles.profileAvatar,
+            { backgroundColor: isDayMode ? '#e4e4e7' : '#1e1e2d' },
+            isPremiumUser && { borderWidth: 3, borderColor: '#ffd700', shadowColor: '#ffd700', shadowOpacity: 0.8, shadowRadius: 10, elevation: 8 }
+          ]}>
+            <Text style={[styles.profileAvatarText, { fontSize: 32 }, isPremiumUser && { color: '#ffd700' }]}>
+              {activeAvatar || (activeUsername?.[0] || 'U').toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+            <Text style={[styles.profileName, { color: theme.text }, isPremiumUser && { color: '#ffd700' }]}>@{activeUsername}</Text>
+            {isPremiumUser && (
+              <View style={{ backgroundColor: '#ffd70020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 0.5, borderColor: '#ffd70050' }}>
+                <Text style={{ color: '#ffd700', fontSize: 10, fontWeight: '800' }}>PREMIUM</Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.profileBio, { color: theme.subText }, isPremiumUser && { color: '#d4af37' }]}>
+            {activeBio}
+          </Text>
+          <View style={styles.profileStats}>
+            {[
+              { label: 'Posts', value: posts.length.toString() },
+              { label: 'Followers', value: '0' },
+              { label: 'VOID', value: VOIDBalance.toString() },
+            ].map((stat, i) => (
+              <View key={i} style={styles.statItem}>
+                <Text style={styles.statValue}>{stat.value}</Text>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {[
+            { icon: 'redeem', label: t('refer'), action: () => setActiveTab('refer') },
+            { icon: 'security', label: t('privacySecurity'), action: () => { setShowPrivacySettings(true) } },
+            { icon: 'settings', label: t('account'), action: handleOpenAccountSettings },
+            { icon: 'logout', label: t('logout'), action: handleLogout },
+          ].map((item, i) => (
+            <TouchableOpacity
+              key={i}
+              style={styles.profileMenuItem}
+              onPress={item.action}
+            >
+              <Icon name={item.icon} size={20} color={theme.primary} forceEmoji={true} />
+              <Text style={styles.menuLabel}>{item.label}</Text>
+              <Text style={styles.menuArrow}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+    )
+  }
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }, isLargeScreen && { maxWidth: '100%', borderLeftWidth: 0, borderRightWidth: 0 }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+
+      {isLargeScreen ? (
+        <View style={styles.splitLayoutContainer}>
+          {/* Left Sidebar */}
+          <View style={styles.sidebarContainer}>
+            {/* Sidebar Branding Header */}
+            {renderHeader(false)}
+
+            {/* Sidebar Navigation */}
+            <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1a1a24', gap: 6 }}>
               {[
-                { icon: 'redeem', label: t('refer'), action: () => setActiveTab('refer') },
-                { icon: 'security', label: t('privacySecurity'), action: () => { setShowPrivacySettings(true) } },
-                { icon: 'settings', label: t('account'), action: () => { setShowAccountModal(true) } },
-                { icon: 'logout', label: t('logout'), action: handleLogout },
-              ].map((item, i) => (
+                { id: 'feed', icon: 'home', label: 'Feed' },
+                { id: 'reels', icon: 'smart_display', label: 'Reels' },
+                { id: 'inbox', icon: 'inbox', label: 'Inbox' },
+                { id: 'settings', icon: 'settings', label: 'Settings' },
+                { id: 'profile', icon: 'person', label: 'Profile' },
+                { id: 'refer', icon: 'redeem', label: 'Refer & Earn' },
+              ].map(tab => (
                 <TouchableOpacity
-                  key={i}
-                  style={styles.profileMenuItem}
-                  onPress={item.action}
+                  key={tab.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 12,
+                    marginHorizontal: 12,
+                    borderRadius: 12,
+                    backgroundColor: activeTab === tab.id ? '#161622' : 'transparent',
+                    gap: 12,
+                  }}
+                  onPress={() => setActiveTab(tab.id)}
                 >
-                  <Icon name={item.icon} size={20} color={theme.primary} forceEmoji={true} />
-                  <Text style={styles.menuLabel}>{item.label}</Text>
-                  <Text style={styles.menuArrow}>›</Text>
+                  <Icon
+                    name={tab.icon}
+                    size={20}
+                    color={activeTab === tab.id ? '#c8ff00' : '#8b8ba7'}
+                    forceEmoji={true}
+                  />
+                  <Text style={{
+                    color: activeTab === tab.id ? '#c8ff00' : '#f0f0ff',
+                    fontSize: 14,
+                    fontWeight: '700',
+                  }}>
+                    {t(tab.id) || tab.label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </ScrollView>
-        )}
-      </View>
 
-      {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
-        {[
-          { id: 'feed', icon: 'home', label: 'Feed' },
-          { id: 'reels', icon: 'smart_display', label: 'Reels' },
-          { id: 'streak', icon: 'camera_alt', label: '', special: true },
-          { id: 'inbox', icon: 'inbox', label: 'Inbox' },
-          { id: 'settings', icon: 'settings', label: 'Settings' },
-        ].filter(tab => appMode === 'social' || (tab.id !== 'feed' && tab.id !== 'reels' && tab.id !== 'streak'))
-         .map(tab => (
-          <TouchableOpacity
-            key={tab.id}
-            style={[styles.navBtn, tab.special && styles.navSpecial]}
-            onPress={() => {
-              if (tab.id === 'streak') {
-                setShowStreak(true)
-              } else {
-                setActiveTab(tab.id)
-              }
-            }}
-          >
-            <Icon
-              name={tab.icon}
-              size={tab.special ? 26 : 22}
-              color={
-                tab.special
-                  ? '#050608'
-                  : activeTab === tab.id
-                  ? '#c8ff00'
-                  : '#4b5563'
-              }
-              style={tab.special ? {} : undefined}
-            />
-            {!tab.special && (
-              <Text style={[
-                styles.navLabel,
-                activeTab === tab.id && styles.navLabelActive
-              ]}>
-                {t(tab.id)}
-              </Text>
+            {/* Contextual Sidebar Content */}
+            <View style={{ flex: 1 }}>
+              {activeTab === 'inbox' && renderInboxContent()}
+              {activeTab === 'settings' && renderSettingsContent()}
+              {activeTab === 'profile' && renderProfileContent()}
+              {(activeTab === 'feed' || activeTab === 'reels' || activeTab === 'refer') && (
+                <View style={{ padding: 16, margin: 12, backgroundColor: '#0e0e14', borderRadius: 16, borderStyle: 'solid', borderWidth: 1, borderColor: '#1e1e2c', gap: 12 }}>
+                  <Text style={{ color: '#ffd700', fontSize: 13, fontWeight: '800' }}>👑 VOID DASHBOARD</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#8b8ba7', fontSize: 12 }}>Your Balance</Text>
+                    <Text style={{ color: '#c8ff00', fontSize: 18, fontWeight: '900' }}>{VOIDBalance} VOID</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#8b8ba7', fontSize: 12 }}>Estimated Value</Text>
+                    <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>Rs. {pkrValue}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#0a1600', paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0030', alignItems: 'center', marginTop: 4 }}
+                    onPress={() => setShowWallet(true)}
+                  >
+                    <Text style={{ color: '#c8ff00', fontSize: 12, fontWeight: '800' }}>Open Wallet</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Right Main Panel */}
+          <View style={styles.mainContentContainer}>
+            {activeTab === 'feed' && renderFeedContent()}
+            {activeTab === 'reels' && <ReelsScreen />}
+            {activeTab === 'refer' && <ReferScreen />}
+            {activeTab === 'inbox' && (
+              <View style={{ flex: 1 }}>
+                {showChat ? (
+                  <ChatScreen
+                    contact={showChat}
+                    onBack={() => setShowChat(false)}
+                    onViewProfile={(profile) => setSelectedUserProfile(profile)}
+                    blockedUsers={currentUserBlockedList}
+                    messageTextSize={messageTextSize}
+                    chatWallpaper={chatWallpaper}
+                    nameColor={nameColor}
+                    onBlockToggle={(id) => handleToggleBlock(id, '')}
+                    onLockToggle={handleLockToggle}
+                    onChangeAvatar={handleChangeAvatar}
+                    isLocked={secretChatIds.includes(showChat?.id)}
+                    onAddGroupMember={handleAddGroupMember}
+                    isDayMode={isDayMode}
+                  />
+                ) : (
+                  <View style={styles.desktopPlaceholder}>
+                    <Icon name="lock" size={64} color="#1c1c28" forceEmoji={true} />
+                    <Text style={styles.desktopPlaceholderText}>Select a conversation to start chat</Text>
+                    <Text style={styles.desktopPlaceholderSubtext}>All messages are end-to-end encrypted and shielded by VOID</Text>
+                  </View>
+                )}
+              </View>
             )}
-          </TouchableOpacity>
-        ))}
-      </View>
+          </View>
+        </View>
+      ) : (
+        <>
+          {/* Mobile Header Wrapper */}
+          <View style={[styles.headerWrapper, { backgroundColor: theme.bg, borderBottomColor: theme.border }]}>
+            {renderHeader(true)}
+            {/* Chat/Social Mode Toggle Row */}
+            <View style={[styles.modeToggleRow, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+              <TouchableOpacity
+                style={[styles.modeToggleFullBtn, appMode === 'chat' && styles.modeToggleFullActive]}
+                onPress={() => handleModeChange('chat')}
+              >
+                <Text style={styles.modeToggleFullIcon}>💬</Text>
+                <Text style={[styles.modeToggleFullText, appMode === 'chat' && { color: theme.primary }]}>Chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeToggleFullBtn, appMode === 'social' && styles.modeToggleFullActive]}
+                onPress={() => handleModeChange('social')}
+              >
+                <Text style={styles.modeToggleFullIcon}>🌐</Text>
+                <Text style={[styles.modeToggleFullText, appMode === 'social' && { color: theme.primary }]}>Social</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Mobile Main Content View */}
+          <View style={{ flex: 1 }}>
+            {activeTab === 'feed' && renderFeedContent()}
+            {activeTab === 'reels' && <ReelsScreen />}
+            {activeTab === 'inbox' && renderInboxContent()}
+            {activeTab === 'settings' && renderSettingsContent()}
+            {activeTab === 'refer' && <ReferScreen />}
+            {activeTab === 'profile' && renderProfileContent()}
+          </View>
+
+          {/* Mobile Bottom Nav */}
+          <View style={[styles.bottomNav, { backgroundColor: theme.cardBg, borderTopColor: theme.border, paddingBottom: Math.max(10, insets.bottom) }]}>
+            {[
+              { id: 'feed', icon: 'home', label: 'Feed' },
+              { id: 'reels', icon: 'smart_display', label: 'Reels' },
+              { id: 'streak', icon: 'camera_alt', label: '', special: true },
+              { id: 'inbox', icon: 'inbox', label: 'Inbox' },
+              { id: 'settings', icon: 'settings', label: 'Settings' },
+            ].filter(tab => appMode === 'social' || (tab.id !== 'feed' && tab.id !== 'reels' && tab.id !== 'streak'))
+             .map(tab => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.navBtn, tab.special && styles.navSpecial]}
+                onPress={() => {
+                  if (tab.id === 'streak') {
+                    setShowStreak(true)
+                  } else {
+                    setActiveTab(tab.id)
+                  }
+                }}
+              >
+                <Icon
+                  name={tab.icon}
+                  size={tab.special ? 26 : 22}
+                  color={
+                    tab.special
+                      ? '#050608'
+                      : activeTab === tab.id
+                      ? theme.primary
+                      : theme.subText
+                  }
+                  style={tab.special ? {} : undefined}
+                />
+                {!tab.special && (
+                  <Text style={[
+                    styles.navLabel,
+                    { color: theme.subText },
+                    activeTab === tab.id && styles.navLabelActive,
+                    activeTab === tab.id && { color: theme.primary }
+                  ]}>
+                    {t(tab.id)}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
 
       {/* Create Post Modal */}
       <Modal visible={showCreate} animationType="slide" onRequestClose={() => setShowCreate(false)}>
@@ -1785,6 +2243,44 @@ export default function App() {
 
           {/* ── Unified Smart Post Input ── */}
           <View style={{ padding: 16, gap: 12 }}>
+
+            {/* Gallery Image Picker Button */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.border,
+                padding: 12,
+                borderRadius: 14,
+                gap: 8,
+              }}
+              onPress={async () => {
+                const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync()
+                if (permissionResult.granted === false) {
+                  Alert.alert('Permission Denied', 'Permission to access gallery is required.')
+                  return
+                }
+                const result = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: true,
+                  quality: 0.8,
+                })
+                if (!result.canceled && result.assets && result.assets.length > 0) {
+                  const imageUri = result.assets[0].uri
+                  setPostType('image')
+                  setMediaUrl(imageUri)
+                  setUrlPreview({ type: 'image', url: imageUri })
+                  Alert.alert('Success', 'Photo attached successfully!')
+                }
+              }}
+            >
+              <Icon name="photo_camera" size={18} color={theme.primary} />
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
+                {postType === 'image' && mediaUrl ? 'Change Photo' : 'Attach Photo from Gallery'}
+              </Text>
+            </TouchableOpacity>
 
             {/* Main text input — handles text, URLs, image/video links */}
             <TextInput
@@ -2017,6 +2513,7 @@ export default function App() {
           onChangeAvatar={handleChangeAvatar}
           isLocked={secretChatIds.includes(showChat?.id)}
           onAddGroupMember={handleAddGroupMember}
+          isDayMode={isDayMode}
         />
       </Modal>
 
@@ -2269,6 +2766,42 @@ export default function App() {
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.content} contentContainerStyle={{ padding: 16, gap: 16 }}>
+            {/* Avatar Selector */}
+            <View style={{ alignItems: 'center', marginBottom: 10, marginTop: 5 }}>
+              <TouchableOpacity 
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  backgroundColor: isDayMode ? '#e4e4e7' : '#1e1e2d',
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  position: 'relative'
+                }}
+                onPress={() => setShowAvatarPicker(true)}
+              >
+                <Text style={{ fontSize: 36 }}>{tempAvatar || '💬'}</Text>
+                <View style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  right: 0,
+                  backgroundColor: theme.primary,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 2,
+                  borderColor: isDayMode ? '#ffffff' : '#0e0e14'
+                }}>
+                  <Icon name="photo_camera" size={12} color="#000000" />
+                </View>
+              </TouchableOpacity>
+              <Text style={{ color: theme.subText, fontSize: 11, marginTop: 6 }}>Tap to change profile avatar</Text>
+            </View>
+
             {/* Name fields */}
             <View style={{ gap: 6 }}>
               <Text style={{ color: '#c8ff00', fontSize: 13, fontWeight: '800' }}>Your name</Text>
@@ -4456,6 +4989,7 @@ export default function App() {
               { label: '👥 New Group', action: () => { setShowChatOptionsMenu(false); setShowCreateGroupModal(true); } },
               { label: '🌐 New Community', action: () => { setShowChatOptionsMenu(false); Alert.alert('New Community', 'Community creation is currently in invite-only beta.'); } },
               { label: '📢 Broadcast List', action: () => { setShowChatOptionsMenu(false); Alert.alert('Broadcast List', 'Broadcast lists feature coming soon.'); } },
+              { label: '👤 Sync Contacts', action: () => { setShowChatOptionsMenu(false); handleSyncContacts(); } },
               { label: '💻 Linked Devices', action: () => { setShowChatOptionsMenu(false); setShowDevicesModal(true); } },
               { label: '⭐ Starred Messages', action: async () => {
                 setShowChatOptionsMenu(false);
@@ -4485,6 +5019,289 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Comments Slide-up Modal */}
+      <Modal visible={showCommentsModal} animationType="slide" transparent onRequestClose={() => setShowCommentsModal(false)}>
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowCommentsModal(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1}
+            style={{ 
+              backgroundColor: '#0c0c12', 
+              borderTopLeftRadius: 28, 
+              borderTopRightRadius: 28, 
+              height: '70%', 
+              borderWidth: 1, 
+              borderColor: '#1e1e2c',
+              padding: 16
+            }}
+          >
+            <View style={{ width: 40, height: 4, backgroundColor: '#2d2d3d', borderRadius: 2, alignSelf: 'center', marginBottom: 12 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '900' }}>Comments ({activeCommentsPost?.comments?.length || 0})</Text>
+              <TouchableOpacity onPress={() => setShowCommentsModal(false)} style={{ padding: 4 }}>
+                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: '700' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Comment List */}
+            <ScrollView style={{ flex: 1, marginBottom: 16 }} showsVerticalScrollIndicator={false}>
+              {!activeCommentsPost?.comments || activeCommentsPost.comments.length === 0 ? (
+                <View style={{ alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+                  <Text style={{ fontSize: 32, marginBottom: 8 }}>💬</Text>
+                  <Text style={{ color: theme.subText, fontSize: 13, fontStyle: 'italic' }}>No comments yet. Be the first to reply!</Text>
+                </View>
+              ) : (
+                activeCommentsPost.comments.map((comment, i) => (
+                  <View 
+                    key={i} 
+                    style={{ 
+                      flexDirection: 'row', 
+                      gap: 12, 
+                      paddingVertical: 12, 
+                      borderBottomWidth: 1, 
+                      borderBottomColor: '#161622',
+                      alignItems: 'flex-start' 
+                    }}
+                  >
+                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#c8ff0030', justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ color: theme.primary, fontWeight: '900', fontSize: 12 }}>
+                        {comment.isAnonymous ? '🕵️' : (comment.user?.username?.[0] || 'U').toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>
+                        {comment.isAnonymous ? 'Anonymous' : `@${comment.user?.username || 'User'}`}
+                      </Text>
+                      <Text style={{ color: theme.text, fontSize: 13, marginTop: 3, lineHeight: 18 }}>{comment.text}</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            {/* Input Box */}
+            <SafeAreaView style={{ flexDirection: 'row', gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1e1e2d', paddingTop: 10 }}>
+              <TextInput
+                style={{ 
+                  flex: 1, 
+                  backgroundColor: '#13131a', 
+                  color: '#fff', 
+                  borderRadius: 14, 
+                  paddingHorizontal: 12, 
+                  paddingVertical: 10,
+                  fontSize: 13,
+                  borderWidth: 1,
+                  borderColor: '#1e1e2c'
+                }}
+                placeholder="Type a comment..."
+                placeholderTextColor="#6b7280"
+                value={newCommentText}
+                onChangeText={setNewCommentText}
+              />
+              <TouchableOpacity 
+                disabled={commenting || !newCommentText.trim()}
+                onPress={handleAddComment}
+                style={{ 
+                  backgroundColor: theme.primary, 
+                  paddingHorizontal: 16, 
+                  paddingVertical: 10, 
+                  borderRadius: 14,
+                  opacity: (!newCommentText.trim() || commenting) ? 0.5 : 1
+                }}
+              >
+                <Text style={{ color: '#000', fontWeight: '900', fontSize: 13 }}>Send</Text>
+              </TouchableOpacity>
+            </SafeAreaView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Contacts Sync Modal */}
+      <Modal visible={showContactsSyncModal} animationType="slide" onRequestClose={() => setShowContactsSyncModal(false)}>
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.bg }]}>
+          <View style={[styles.modalHeader, { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+            <TouchableOpacity onPress={() => setShowContactsSyncModal(false)}>
+              <Text style={[styles.cancelBtn, { color: theme.primary }]}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Sync Contacts</Text>
+            <TouchableOpacity onPress={handleSyncContacts} disabled={syncingContacts} style={{ padding: 6 }}>
+              <Icon name="autorenew" size={22} color={theme.primary} style={syncingContacts && { opacity: 0.5 }} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.content} contentContainerStyle={{ padding: 16 }}>
+            {syncingContacts ? (
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 }}>
+                <Text style={{ fontSize: 32 }}>🔄</Text>
+                <Text style={{ color: theme.text, fontWeight: '700' }}>Syncing device contacts...</Text>
+                <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
+                  Scanning your phone book to match registered users on VOID CHAT.
+                </Text>
+              </View>
+            ) : matchedContacts.length === 0 ? (
+              <View style={{ alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 }}>
+                <Text style={{ fontSize: 44 }}>👥</Text>
+                <Text style={{ color: theme.text, fontWeight: '800' }}>No Registered Contacts Found</Text>
+                <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
+                  None of the numbers in your phone contacts are currently registered on VOID CHAT.
+                </Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: theme.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, marginTop: 12 }}
+                  onPress={handleSyncContacts}
+                >
+                  <Text style={{ color: '#050608', fontWeight: '800' }}>Rescan Contacts</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ gap: 12 }}>
+                <View style={{ paddingVertical: 4, paddingHorizontal: 4 }}>
+                  <Text style={{ color: theme.primary, fontWeight: '800', fontSize: 12 }}>
+                    REGISTERED FRIENDS ({matchedContacts.length})
+                  </Text>
+                </View>
+                {matchedContacts.map((match, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      flexDirection: 'row',
+                      backgroundColor: theme.cardBg,
+                      borderRadius: 16,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      alignItems: 'center',
+                      gap: 12
+                    }}
+                    onPress={() => {
+                      setShowContactsSyncModal(false)
+                      setShowChat({
+                        id: match.user._id || match.user.id,
+                        name: `@${match.user.username}`,
+                        color: '#6366f1',
+                        phoneNumber: match.matchedNumber
+                      })
+                    }}
+                  >
+                    <View style={[styles.chatAvatar, { backgroundColor: '#6366f1', width: 44, height: 44, borderRadius: 22 }]}>
+                      <Text style={[styles.avatarText, { fontSize: 14 }]}>
+                        {match.deviceName[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>
+                        {match.deviceName}
+                      </Text>
+                      <Text style={{ color: theme.primary, fontSize: 12, marginTop: 2 }}>
+                        @{match.user.username} • Active on VOID
+                      </Text>
+                      <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
+                        {match.matchedNumber}
+                      </Text>
+                    </View>
+                    <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '800', marginRight: 4 }}>
+                      Chat 💬
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Avatar Picker Modal */}
+      <Modal visible={showAvatarPicker} transparent={true} animationType="fade" onRequestClose={() => setShowAvatarPicker(false)}>
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} 
+          activeOpacity={1}
+          onPress={() => setShowAvatarPicker(false)}
+        >
+          <View style={{
+            width: '85%',
+            backgroundColor: isDayMode ? '#ffffff' : '#0e0e14',
+            borderRadius: 24,
+            borderWidth: 1,
+            borderColor: theme.border,
+            padding: 20,
+            gap: 16,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.5,
+            shadowRadius: 20,
+            elevation: 10
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Select Avatar</Text>
+              <TouchableOpacity onPress={() => setShowAvatarPicker(false)}>
+                <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 14 }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Custom Emoji Input */}
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '800' }}>Use Custom Emoji / Character</Text>
+              <TextInput
+                style={{
+                  backgroundColor: isDayMode ? '#f4f4f5' : '#1a1a24',
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: theme.text,
+                  fontSize: 14,
+                  textAlign: 'center'
+                }}
+                maxLength={2}
+                value={tempAvatar}
+                onChangeText={(val) => setTempAvatar(val)}
+                placeholder="Type emoji or letter..."
+                placeholderTextColor="#4b5563"
+              />
+            </View>
+
+            {/* Grid of Preset Avatars */}
+            <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginBottom: -4 }}>Premium Presets</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+              {['🤖', '👾', '🛸', '🚀', '🌌', '🎮', '🎧', '🔥', '⚡', '👑', '🐱', '🦊', '🦁', '🐼', '💬', '🌐'].map((avatar, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: 25,
+                    backgroundColor: tempAvatar === avatar ? `${theme.primary}20` : (isDayMode ? '#f4f4f5' : '#161622'),
+                    borderWidth: 2,
+                    borderColor: tempAvatar === avatar ? theme.primary : 'transparent',
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}
+                  onPress={() => setTempAvatar(avatar)}
+                >
+                  <Text style={{ fontSize: 26 }}>{avatar}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.primary,
+                borderRadius: 14,
+                paddingVertical: 12,
+                alignItems: 'center',
+                marginTop: 10
+              }}
+              onPress={() => setShowAvatarPicker(false)}
+            >
+              <Text style={{ color: '#000000', fontWeight: '800', fontSize: 14 }}>Apply Avatar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
     </SafeAreaView>
   )
 }
@@ -4500,6 +5317,42 @@ const styles = StyleSheet.create({
     borderLeftWidth: Platform.OS === 'web' ? 1 : 0,
     borderRightWidth: Platform.OS === 'web' ? 1 : 0,
     borderColor: '#1a1a24',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  splitLayoutContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#060608',
+  },
+  sidebarContainer: {
+    width: 320,
+    borderRightWidth: 1,
+    borderRightColor: '#1a1a24',
+    backgroundColor: '#0a0a0f',
+  },
+  mainContentContainer: {
+    flex: 1,
+    backgroundColor: '#060608',
+  },
+  desktopPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: '#060608',
+  },
+  desktopPlaceholderText: {
+    color: '#f0f0ff',
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 16,
+  },
+  desktopPlaceholderSubtext: {
+    color: '#6b7280',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 6,
+    maxWidth: 280,
   },
   content:   { flex: 1 },
 
@@ -4755,7 +5608,8 @@ const styles = StyleSheet.create({
   // ── Bottom Navigation ────────────────────────────────────────
   bottomNav: {
     flexDirection: 'row', justifyContent: 'space-around',
-    alignItems: 'center', paddingVertical: 10, paddingBottom: 18,
+    alignItems: 'center', paddingVertical: 10, 
+    paddingBottom: Platform.OS === 'android' ? 28 : 18,
     backgroundColor: '#08080c',
     borderTopWidth: 1, borderTopColor: '#1a1a24',
   },

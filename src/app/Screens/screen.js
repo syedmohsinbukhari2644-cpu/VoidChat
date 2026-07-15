@@ -1,15 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { updatePreferences } from '../api'
+import { updatePreferences, getMessages, sendMessage as sendApiMessage } from '../api'
 import { RTCView } from 'react-native-webrtc'
 import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
 import rawWebrtcService from '../../utils/webrtcService'
+import * as ImagePicker from 'expo-image-picker'
 import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
+import { Audio } from 'expo-av'
+import * as Location from 'expo-location'
+import MapView, { Marker } from 'react-native-maps'
+import * as DocumentPicker from 'expo-document-picker'
+import * as Contacts from 'expo-contacts'
 
 const webrtcService = Platform.OS === 'web' ? new Proxy({}, {
   get: (target, prop) => {
@@ -63,9 +69,80 @@ export default function ChatScreen({
   onChangeAvatar,
   isLocked,
   onAddGroupMember,
+  isDayMode = false,
 }) {
+  const theme = {
+    bg: isDayMode ? '#f4f4f5' : '#060608',
+    cardBg: isDayMode ? '#ffffff' : '#0e0e14',
+    text: isDayMode ? '#18181b' : '#f0f0ff',
+    subText: isDayMode ? '#71717a' : '#8b8ba7',
+    border: isDayMode ? '#e4e4e7' : '#1e1e2c',
+    primary: nameColor || '#c8ff00'
+  }
+
   const isBlocked = blockedUsers?.includes(contact?.id || contact?.userId)
-  const [messages, setMessages] = useState(mockMessages)
+  const [messages, setMessages] = useState([])
+  const [loadingMessages, setLoadingMessages] = useState(false)
+
+  const fetchMessages = async () => {
+    if (!contact?.id) return
+    try {
+      const res = await getMessages(contact.id)
+      if (res.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(m => {
+          const content = m.content || ''
+          const decrypted = isEncrypted(content) ? decryptMessage(content) : content
+          
+          let type = m.messageType || 'text'
+          let parsedContent = decrypted
+          let contactInfo = null
+
+          if (decrypted.startsWith('[IMAGE] ')) {
+            type = 'image'
+            parsedContent = decrypted.replace('[IMAGE] ', '')
+          } else if (decrypted.startsWith('[LOCATION] ')) {
+            type = 'location'
+            parsedContent = decrypted.replace('[LOCATION] ', '')
+          } else if (decrypted.startsWith('[CONTACT] ')) {
+            type = 'contact'
+            parsedContent = decrypted.replace('[CONTACT] ', '')
+            const nameMatch = parsedContent.match(/Contact: ([^(]+)/) || parsedContent.match(/👤 Contact: ([^(]+)/)
+            const phoneMatch = parsedContent.match(/\(([^)]+)\)/)
+            contactInfo = {
+              name: nameMatch ? nameMatch[1].trim() : 'Contact',
+              phone: phoneMatch ? phoneMatch[1].trim() : parsedContent
+            }
+          } else if (decrypted.startsWith('[DOCUMENT] ')) {
+            type = 'document'
+            parsedContent = decrypted.replace('[DOCUMENT] ', '')
+          }
+
+          return {
+            id: m._id || m.id,
+            from: m.senderId === contact.id ? 'them' : 'me',
+            type: type,
+            text: content,
+            content: parsedContent,
+            originalText: parsedContent,
+            contact: contactInfo,
+            time: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date(m.createdAt).getTime(),
+            streak: false,
+          }
+        })
+        setMessages(mapped)
+      }
+    } catch (e) {
+      console.log('Error fetching messages:', e)
+    }
+  }
+
+  useEffect(() => {
+    fetchMessages()
+    const interval = setInterval(fetchMessages, 3000)
+    return () => clearInterval(interval)
+  }, [contact?.id])
+
   const [input, setInput] = useState('')
   const [streak, setStreak] = useState(47)
   const [screenshotAllowed, setScreenshotAllowed] = useState(true)
@@ -115,6 +192,7 @@ export default function ChatScreen({
   const [selectedDraft, setSelectedDraft] = useState(null)
   const [showDraftPreview, setShowDraftPreview] = useState(false)
 
+
   // ── Voice Recording State ─────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
@@ -124,6 +202,8 @@ export default function ChatScreen({
   const audioChunksRef = useRef([])
   const recordingTimerRef = useRef(null)
   const audioRefs = useRef({})
+  const recordingRef = useRef(null)
+  const soundObjectRef = useRef(null)
 
   
   const cameraFilters = [
@@ -221,11 +301,10 @@ export default function ChatScreen({
     if (disappearingMode === 'off') return
 
     let durationMs = 0
-    if (disappearingMode === '10s') durationMs = 10 * 1000
-    else if (disappearingMode === '1m') durationMs = 60 * 1000
+    if (disappearingMode === '10s (Dev)') durationMs = 10 * 1000
     else if (disappearingMode === '24h') durationMs = 24 * 60 * 60 * 1000
     else if (disappearingMode === '7d') durationMs = 7 * 24 * 60 * 60 * 1000
-    else if (disappearingMode === '30d') durationMs = 30 * 24 * 60 * 60 * 1000
+    else if (disappearingMode === '90d') durationMs = 90 * 24 * 60 * 60 * 1000
 
     if (durationMs === 0) return
 
@@ -326,23 +405,27 @@ export default function ChatScreen({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`
   }
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return
-    const newMsg = {
-      id: Date.now().toString(),
-      from: 'me',
-      type: 'text',
-      text: encryptMessage(input.trim()),
-      originalText: input.trim(), // Keep original for sender view
-      time: new Date().toLocaleTimeString([], {
-        hour: '2-digit', minute: '2-digit'
-      }),
-      streak: false,
-      timestamp: Date.now()
-    }
-    setMessages(prev => [...prev, newMsg])
+    const originalText = input.trim()
+    const encryptedText = encryptMessage(originalText)
     setInput('')
-    setStreak(prev => prev + 1)
+
+    try {
+      if (!contact?.id) {
+        Alert.alert('Error', 'Contact ID not found!')
+        return
+      }
+      await sendApiMessage({
+        receiverId: contact.id,
+        content: encryptedText
+      })
+      await fetchMessages()
+      setStreak(prev => prev + 1)
+    } catch (e) {
+      Alert.alert('Error', 'Failed to send message!')
+      setInput(originalText) // Restore text on failure
+    }
   }
 
   const toggleScreenshot = () => {
@@ -489,6 +572,64 @@ export default function ChatScreen({
     setShowDraftPreview(true)
   }
 
+  const openRealCamera = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync()
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Denied', 'You need to allow camera access to take photos.')
+        return
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        sendMediaMessage('image', result.assets[0].uri)
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to open camera.')
+    }
+  }
+
+  const openRealGallery = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Denied', 'You need to allow access to photos to select images.')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        sendMediaMessage('image', result.assets[0].uri)
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to open gallery.')
+    }
+  }
+
+  const sendMediaMessage = async (type, contentText) => {
+    try {
+      if (!contact?.id) return
+      const prefix = `[${type.toUpperCase()}] `
+      const encryptedContent = encryptMessage(prefix + contentText)
+      
+      await sendApiMessage({
+        receiverId: contact.id,
+        content: encryptedContent
+      })
+      await fetchMessages()
+      setShowMediaMenu(false)
+      setStreak(prev => prev + 1)
+    } catch (e) {
+      Alert.alert('Error', `Failed to send ${type}!`)
+    }
+  }
+
   const sendPhoto = () => {
     Alert.alert('📷 Camera', 'Take a photo with filter?', [
       { text: 'Cancel', onPress: () => setShowFilterMenu(false) },
@@ -519,21 +660,8 @@ export default function ChatScreen({
               {
                 text: '✈️ Send Now',
                 onPress: () => {
-                  const msg = {
-                    id: Date.now().toString(),
-                    from: 'me',
-                    type: 'image',
-                    content: `📷 Photo sent ${selectedFilter !== 'normal' ? `(${filterLabel} filter)` : ''}`,
-                    filter: selectedFilter,
-                    time: new Date().toLocaleTimeString([], {
-                      hour: '2-digit', minute: '2-digit'
-                    }),
-                    streak: false
-                  }
-                  setMessages(prev => [...prev, msg])
-                  setShowMediaMenu(false)
+                  sendMediaMessage('image', `📷 Photo sent ${selectedFilter !== 'normal' ? `(${filterLabel} filter)` : ''}`)
                   setShowFilterMenu(false)
-                  setStreak(prev => prev + 1)
                 }
               }
             ]
@@ -549,162 +677,190 @@ export default function ChatScreen({
       { 
         text: 'Select Image', 
         onPress: () => {
-          const msg = {
-            id: Date.now().toString(),
-            from: 'me',
-            type: 'image',
-            content: '🖼️ Image shared',
-            time: new Date().toLocaleTimeString([], {
-              hour: '2-digit', minute: '2-digit'
-            }),
-            streak: false
-          }
-          setMessages(prev => [...prev, msg])
-          setShowMediaMenu(false)
-          setStreak(prev => prev + 1)
+          sendMediaMessage('image', '🖼️ Gallery Image shared')
         }
       }
     ])
   }
 
-  const shareLocation = () => {
-    Alert.alert('📍 Share Location', 'Share your live location?', [
-      { text: 'Cancel', onPress: () => {} },
-      { 
-        text: 'Share', 
-        onPress: () => {
-          const msg = {
-            id: Date.now().toString(),
-            from: 'me',
-            type: 'location',
-            content: '📍 Location: Karachi, Pakistan',
-            time: new Date().toLocaleTimeString([], {
-              hour: '2-digit', minute: '2-digit'
-            }),
-            streak: false
-          }
-          setMessages(prev => [...prev, msg])
-          setShowMediaMenu(false)
-          setStreak(prev => prev + 1)
-        }
+  const shareContact = async () => {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access contacts is required.')
+        return
       }
-    ])
+      
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers],
+        pageSize: 30,
+      })
+      
+      if (data && data.length > 0) {
+        const sorted = data.filter(c => c.name && c.phoneNumbers && c.phoneNumbers.length > 0).slice(0, 5)
+        if (sorted.length === 0) {
+          Alert.alert('No Contacts', 'No contacts with phone numbers found.')
+          return
+        }
+        const options = sorted.map(c => ({
+          text: `${c.name} (${c.phoneNumbers[0].number})`,
+          onPress: () => sendMediaMessage('contact', `👤 Contact: ${c.name} (${c.phoneNumbers[0].number})`)
+        }))
+        options.push({ text: 'Cancel', style: 'cancel' })
+        Alert.alert('Share Contact', 'Select a contact to share:', options)
+      } else {
+        Alert.alert('No Contacts', 'No contacts found on your device.')
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to read contacts.')
+    }
   }
 
-  const shareContact = () => {
-    Alert.alert('👤 Share Contact', 'Pick a contact to share', [
-      { text: 'Cancel', onPress: () => {} },
-      { 
-        text: 'Select Contact', 
-        onPress: () => {
-          const msg = {
-            id: Date.now().toString(),
-            from: 'me',
-            type: 'contact',
-            contact: { name: 'Ali Khan', phone: '+92 300 1234567' },
-            time: new Date().toLocaleTimeString([], {
-              hour: '2-digit', minute: '2-digit'
-            }),
-            streak: false
-          }
-          setMessages(prev => [...prev, msg])
-          setShowMediaMenu(false)
-          setStreak(prev => prev + 1)
-        }
+  const shareDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0]
+        sendMediaMessage('document', `📄 ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`)
       }
-    ])
+    } catch (e) {
+      Alert.alert('Error', 'Failed to pick document.')
+    }
   }
 
-  const shareDocument = () => {
-    Alert.alert('📄 Share Document', 'Pick a document to share', [
-      { text: 'Cancel', onPress: () => {} },
-      { 
-        text: 'Select Document', 
-        onPress: () => {
-          const msg = {
-            id: Date.now().toString(),
-            from: 'me',
-            type: 'document',
-            content: '📄 Document.pdf (2.4 MB)',
-            time: new Date().toLocaleTimeString([], {
-              hour: '2-digit', minute: '2-digit'
-            }),
-            streak: false
-          }
-          setMessages(prev => [...prev, msg])
-          setShowMediaMenu(false)
-          setStreak(prev => prev + 1)
-        }
+  const shareLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access location is required.')
+        return
       }
-    ])
+      const loc = await Location.getCurrentPositionAsync({})
+      const lat = loc.coords.latitude
+      const lon = loc.coords.longitude
+      sendMediaMessage('location', `📍 Location: (${lat.toFixed(4)}, ${lon.toFixed(4)})`)
+    } catch (e) {
+      Alert.alert('Error', 'Failed to fetch location.')
+    }
   }
 
   // ── Voice Recording Functions ────────────────────────────────
   const startRecording = async () => {
-    if (Platform.OS !== 'web') {
-      Alert.alert('🎙️', 'Voice recording is supported in web version.')
-      return
-    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = recorder
-      audioChunksRef.current = []
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
-      }
-
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        const url = URL.createObjectURL(blob)
-        const duration = recordingDuration
-        setIsRecording(false)
+      if (Platform.OS === 'web') {
+        setIsRecording(true)
         setRecordingDuration(0)
-        clearInterval(recordingTimerRef.current)
-        // stop all tracks
-        stream.getTracks().forEach(t => t.stop())
-        // send voice message
-        const msg = {
-          id: Date.now().toString(),
-          from: 'me',
-          type: 'voice',
-          audioUrl: url,
-          duration: duration,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          streak: false
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingDuration(prev => prev + 1)
+        }, 1000)
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          const recorder = new MediaRecorder(stream)
+          mediaRecorderRef.current = recorder
+          audioChunksRef.current = []
+
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunksRef.current.push(e.data)
+          }
+
+          recorder.onstop = () => {
+            const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+            const url = URL.createObjectURL(blob)
+            sendVoiceMsg(url, recordingDuration)
+            stream.getTracks().forEach(t => t.stop())
+          }
+
+          recorder.start()
+        } catch (e) {
+          console.log('Web audio stream failed')
         }
-        setMessages(prev => [...prev, msg])
-        setStreak(prev => prev + 1)
+      } else {
+        // Native Recording using expo-av
+        const { status } = await Audio.requestPermissionsAsync()
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Microphone access is required to record voice notes.')
+          return
+        }
+
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        })
+
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        )
+        recordingRef.current = recording
+
+        setIsRecording(true)
+        setRecordingDuration(0)
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingDuration(prev => prev + 1)
+        }, 1000)
       }
-
-      recorder.start()
-      setIsRecording(true)
-      setRecordingDuration(0)
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1)
-      }, 1000)
     } catch (err) {
-      Alert.alert('🎙️ Mic Error', 'Microphone access denied. Please allow mic permission.')
+      console.log('Mic init error:', err)
     }
   }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
+  const sendVoiceMsg = (url, duration) => {
+    const msg = {
+      id: Date.now().toString(),
+      from: 'me',
+      type: 'voice',
+      audioUrl: url,
+      duration: duration || 5,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      streak: false
     }
-    clearInterval(recordingTimerRef.current)
+    setMessages(prev => [...prev, msg])
+    setStreak(prev => prev + 1)
   }
 
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      // Remove onstop so no message is sent
-      mediaRecorderRef.current.onstop = null
-      mediaRecorderRef.current.stop()
-    }
+  const stopRecording = async () => {
+    const duration = recordingDuration
     clearInterval(recordingTimerRef.current)
     setIsRecording(false)
     setRecordingDuration(0)
+
+    if (Platform.OS === 'web') {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+    } else {
+      if (!recordingRef.current) return
+      try {
+        await recordingRef.current.stopAndUnloadAsync()
+        const uri = recordingRef.current.getURI()
+        recordingRef.current = null
+        sendVoiceMsg(uri, duration)
+      } catch (err) {
+        console.log('Stop recording failed:', err)
+      }
+    }
+  }
+
+  const cancelRecording = async () => {
+    clearInterval(recordingTimerRef.current)
+    setIsRecording(false)
+    setRecordingDuration(0)
+
+    if (Platform.OS === 'web') {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.onstop = null
+        mediaRecorderRef.current.stop()
+      }
+    } else {
+      if (!recordingRef.current) return
+      try {
+        await recordingRef.current.stopAndUnloadAsync()
+        recordingRef.current = null
+      } catch (err) {}
+    }
   }
 
   const formatDuration = (secs) => {
@@ -713,24 +869,59 @@ export default function ChatScreen({
     return `${m}:${s}`
   }
 
-  const togglePlayVoice = (msgId, audioUrl) => {
-    if (Platform.OS !== 'web') return
-    // Stop any currently playing
-    if (playingMsgId && playingMsgId !== msgId) {
-      const prev = audioRefs.current[playingMsgId]
-      if (prev) { prev.pause(); prev.currentTime = 0 }
+  const togglePlayVoice = async (msgId, audioUrl) => {
+    if (!audioUrl) {
+      Alert.alert('Info', 'Audio URL is empty.')
+      return
     }
-    if (!audioRefs.current[msgId]) {
-      audioRefs.current[msgId] = new Audio(audioUrl)
-      audioRefs.current[msgId].onended = () => setPlayingMsgId(null)
-    }
-    const audio = audioRefs.current[msgId]
-    if (playingMsgId === msgId) {
-      audio.pause()
-      setPlayingMsgId(null)
-    } else {
-      audio.play()
-      setPlayingMsgId(msgId)
+
+    try {
+      if (Platform.OS === 'web') {
+        if (playingMsgId && playingMsgId !== msgId) {
+          const prev = audioRefs.current[playingMsgId]
+          if (prev) { prev.pause(); prev.currentTime = 0 }
+        }
+        if (!audioRefs.current[msgId]) {
+          audioRefs.current[msgId] = new window.Audio(audioUrl)
+          audioRefs.current[msgId].onended = () => setPlayingMsgId(null)
+        }
+        const audio = audioRefs.current[msgId]
+        if (playingMsgId === msgId) {
+          audio.pause()
+          setPlayingMsgId(null)
+        } else {
+          audio.play()
+          setPlayingMsgId(msgId)
+        }
+      } else {
+        // Native audio playback using expo-av
+        if (soundObjectRef.current) {
+          await soundObjectRef.current.unloadAsync()
+          soundObjectRef.current = null
+        }
+
+        if (playingMsgId === msgId) {
+          setPlayingMsgId(null)
+          return
+        }
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: audioUrl },
+          { shouldPlay: true }
+        )
+        soundObjectRef.current = sound
+        setPlayingMsgId(msgId)
+
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.didJustFinish) {
+            setPlayingMsgId(null)
+            soundObjectRef.current = null
+          }
+        })
+      }
+    } catch (err) {
+      console.log('Error playing sound:', err)
+      Alert.alert('Playback Error', 'Failed to play voice message.')
     }
   }
 
@@ -815,7 +1006,6 @@ export default function ChatScreen({
     }
     return true
   }
-
   const canShareContact = () => {
     if (!otherUserPermissions.canShareContact) {
       Alert.alert('🔒 Not Allowed', `Request permission from ${contact?.name} to share contacts`)
@@ -825,27 +1015,34 @@ export default function ChatScreen({
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.cardBg, borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
         <TouchableOpacity onPress={onBack} style={[styles.backBtn, { padding: 4 }]}>
-          <Icon name="arrow_back" size={22} color="#f9fafb" />
+          <Icon name="arrow_back" size={22} color={theme.text} />
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.contactInfo}
           onPress={() => setShowChatMenuModal(true)}
         >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {contact?.name?.[0] || 'U'}
+          <View style={[styles.avatar, { backgroundColor: isDayMode ? '#e4e4e7' : '#27272a' }]}>
+            <Text style={[styles.avatarText, { color: theme.text }]}>
+              {contact?.avatar || contact?.name?.[0] || 'U'}
             </Text>
           </View>
-          <View>
-            <Text style={[styles.contactName, { color: nameColor }]}>
-              {contact?.name || 'User'} {isChatMuted && '🔕'}
-            </Text>
-            <Text style={styles.encStatus}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text style={[styles.contactName, { color: theme.text }, nameColor && { color: nameColor }]} numberOfLines={1}>
+                {contact?.name || 'User'} {isChatMuted && '🔕'}
+              </Text>
+              {streak > 0 && (
+                <View style={styles.streakBadge}>
+                  <Text style={styles.streakText}>🔥 {streak}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.encStatus, { color: theme.subText }]}>
               {onCall ? '🔴 On Call' : '🔐 E2E Encrypted'}
             </Text>
           </View>
@@ -855,16 +1052,16 @@ export default function ChatScreen({
         <View style={styles.headerControls}>
           <TouchableOpacity 
             onPress={toggleScreenshot}
-            style={[
-              styles.privacyBtn,
-              screenshotAllowed ? styles.privacyBtnOff : styles.privacyBtnOn
-            ]}
+            style={{ 
+              backgroundColor: screenshotAllowed ? (isDayMode ? '#dcfce7' : '#052e16') : (isDayMode ? '#fee2e2' : '#450a0a'),
+              borderRadius: 14, width: 28, height: 28, justifyContent: 'center', alignItems: 'center'
+            }}
           >
-            <Icon name={screenshotAllowed ? 'photo_camera' : 'no_photography'} size={20} color={screenshotAllowed ? '#4ade80' : '#ef4444'} />
+            <Icon name={screenshotAllowed ? 'photo_camera' : 'no_photography'} size={14} color={screenshotAllowed ? '#22c55e' : '#ef4444'} />
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={styles.permBtn}
+            style={{ backgroundColor: isDayMode ? '#f3e8ff' : '#2e1065', borderRadius: 14, width: 28, height: 28, justifyContent: 'center', alignItems: 'center', marginLeft: 4 }}
             onPress={() => {
               Alert.alert(
                 '🔐 Permissions',
@@ -882,7 +1079,7 @@ export default function ChatScreen({
               )
             }}
           >
-            <Icon name="security" size={20} color="#a855f7" />
+            <Icon name="lock" size={14} color="#a855f7" />
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -890,52 +1087,30 @@ export default function ChatScreen({
               if (isBlocked) {
                 Alert.alert('Blocked', 'Unblock this user to make calls.')
               } else {
-                setShowVCMenu(!showVCMenu)
+                Alert.alert(
+                  '📞 Call Options',
+                  `Select call type for ${contact?.name || 'User'}:`,
+                  [
+                    { text: '📞 Voice Call', onPress: () => startVoiceCall() },
+                    { text: '📹 Video Call', onPress: () => startVideoCall() },
+                    { text: 'Cancel', style: 'cancel' }
+                  ]
+                )
               }
             }}
-            style={[styles.callBtn, isBlocked && { opacity: 0.4 }]}
+            style={[{ backgroundColor: isDayMode ? '#e4e4e7' : '#1a1a24', borderRadius: 14, width: 28, height: 28, justifyContent: 'center', alignItems: 'center', marginLeft: 4 }, isBlocked && { opacity: 0.4 }]}
           >
-            <Icon name="call" size={20} color="#c8ff00" />
+            <Icon name="call" size={14} color={isDayMode ? '#1e1b4b' : '#c8ff00'} />
           </TouchableOpacity>
 
           <TouchableOpacity 
             onPress={() => setShowChatMenuModal(true)}
-            style={{ padding: 4, marginLeft: 8 }}
+            style={{ padding: 4, marginLeft: 4 }}
           >
-            <Icon name="more_vert" size={22} color="#f9fafb" />
+            <Icon name="more_vert" size={20} color={theme.text} />
           </TouchableOpacity>
-        </View>
-        
-        <View style={styles.streakBadge}>
-          <Text style={styles.streakText}>🔥 {streak}</Text>
         </View>
       </View>
-
-      {/* VC Menu */}
-      {showVCMenu && (
-        <View style={styles.vcMenu}>
-          <TouchableOpacity 
-            style={styles.vcOption}
-            onPress={startVoiceCall}
-          >
-            <Icon name="mic" size={24} color="#c8ff00" style={styles.vcIcon} />
-            <View style={styles.vcText}>
-              <Text style={styles.vcTitle}>Voice Call</Text>
-              <Text style={styles.vcDesc}>Start voice conversation</Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.vcOption}
-            onPress={startVideoCall}
-          >
-            <Icon name="video_call" size={24} color="#c8ff00" style={styles.vcIcon} />
-            <View style={styles.vcText}>
-              <Text style={styles.vcTitle}>Video Call</Text>
-              <Text style={styles.vcDesc}>Start video conversation</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* ── Incoming Call Modal ───────────────────────────────── */}
       <Modal visible={!!incomingCall} transparent animationType="slide">
@@ -1074,21 +1249,27 @@ export default function ChatScreen({
         </Text>
       </View>
 
-      {/* Messages */}
-      <View style={{
-        flex: 1,
-        position: 'relative',
-        overflow: 'hidden',
-        backgroundColor: { 
-          classic_dark: '#0a0a0f', 
-          solid_gray: '#27272a', 
-          neon_glow: '#120024', 
-          emerald_deep: '#021e10',
-          pastel_blue: '#0a1c2a',
-          aura_purple: '#1c052e',
-          sunset_dark: '#24040a'
-        }[localChatTheme || chatWallpaper] || '#0a0a0a'
-      }}>
+      {/* Messages, Menus, and Input wrapped in KeyboardAvoidingView */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.select({ ios: 90, android: 0 })}
+      >
+        {/* Messages */}
+        <View style={{
+          flex: 1,
+          position: 'relative',
+          overflow: 'hidden',
+          backgroundColor: { 
+            classic_dark: '#0a0a0f', 
+            solid_gray: '#27272a', 
+            neon_glow: '#120024', 
+            emerald_deep: '#021e10',
+            pastel_blue: '#0a1c2a',
+            aura_purple: '#1c052e',
+            sunset_dark: '#24040a'
+          }[localChatTheme || chatWallpaper] || '#0a0a0a'
+        }}>
         <ChatDoodleBackground opacity={0.08} />
         <ScrollView 
           style={[styles.messages, { backgroundColor: 'transparent' }]} 
@@ -1109,9 +1290,19 @@ export default function ChatScreen({
                 onLongPress={() => handleMsgLongPress(msg)} 
                 style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
               >
-                <View style={[styles.imageBubble, msg.filter && getFilterStyle(msg.filter)]}>
-                  <Text style={styles.imagePlaceholder}>🖼️</Text>
-                  <Text style={styles.imageText}>{msg.content}</Text>
+                <View style={[styles.imageBubble, msg.filter && getFilterStyle(msg.filter), { padding: 4 }]}>
+                  {msg.content.startsWith('http') ? (
+                    <Image 
+                      source={{ uri: msg.content }} 
+                      style={{ width: 220, height: 160, borderRadius: 12 }} 
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={{ width: 220, height: 160, borderRadius: 12, backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={styles.imagePlaceholder}>🖼️</Text>
+                      <Text style={styles.imageText}>{msg.content}</Text>
+                    </View>
+                  )}
                   {msg.filter && msg.filter !== 'normal' && (
                     <Text style={styles.filterBadge}>
                       {cameraFilters.find(f => f.name === msg.filter)?.emoji} {cameraFilters.find(f => f.name === msg.filter)?.label}
@@ -1134,26 +1325,50 @@ export default function ChatScreen({
               </TouchableOpacity>
             )}
             
-            {msg.type === 'location' && (
-              <TouchableOpacity 
-                activeOpacity={0.9} 
-                onLongPress={() => handleMsgLongPress(msg)} 
-                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
-              >
-                <View style={styles.locationBubble}>
-                  <Text style={styles.locationText}>{msg.content}</Text>
-                  <TouchableOpacity style={styles.mapBtn}>
-                    <Text style={styles.mapBtnText}>View on Map</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.msgMeta}>
-                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
-                  <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
-                  <Text style={styles.msgLock}>🔒</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+            {msg.type === 'location' && (() => {
+              const match = msg.content.match(/\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/)
+              const lat = match ? parseFloat(match[1]) : 24.8607
+              const lon = match ? parseFloat(match[2]) : 67.0011
+
+              return (
+                <TouchableOpacity 
+                  activeOpacity={0.9} 
+                  onLongPress={() => handleMsgLongPress(msg)} 
+                  style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+                >
+                  <View style={[styles.locationBubble, { padding: 4 }]}>
+                    <View style={{ width: 220, height: 150, borderRadius: 12, overflow: 'hidden' }}>
+                      {Platform.OS !== 'web' ? (
+                        <MapView
+                          style={{ width: '100%', height: '100%' }}
+                          initialRegion={{
+                            latitude: lat,
+                            longitude: lon,
+                            latitudeDelta: 0.01,
+                            longitudeDelta: 0.01,
+                          }}
+                          scrollEnabled={false}
+                          zoomEnabled={false}
+                        >
+                          <Marker coordinate={{ latitude: lat, longitude: lon }} />
+                        </MapView>
+                      ) : (
+                        <View style={{ width: '100%', height: '100%', backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 24 }}>📍</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.locationText, { marginTop: 6, paddingHorizontal: 6 }]}>{msg.content}</Text>
+                  </View>
+                  <View style={styles.msgMeta}>
+                    {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
+                    <Text style={styles.msgTime}>{msg.time}</Text>
+                    {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                    <Text style={styles.msgLock}>🔒</Text>
+                  </View>
+                </TouchableOpacity>
+              )
+            })()}
             
             {msg.type === 'contact' && (
               <TouchableOpacity 
@@ -1429,36 +1644,70 @@ export default function ChatScreen({
         </View>
       )}
 
-      {/* Media Menu */}
+      {/* Floating Media Menu */}
       {showMediaMenu && (
-        <View style={styles.mediaMenu}>
-          <TouchableOpacity style={styles.mediaOption} onPress={sendPhoto}>
-            <Icon name="photo_camera" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Camera</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mediaOption} onPress={sendFromGallery}>
-            <Icon name="image" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Gallery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mediaOption} onPress={shareLocation}>
-            <Icon name="location_on" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Location</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mediaOption} onPress={shareContact}>
-            <Icon name="person" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Contact</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mediaOption} onPress={shareDocument}>
-            <Icon name="description" size={28} color="#d946ef" style={styles.mediaIcon} />
-            <Text style={styles.mediaLabel}>Document</Text>
-          </TouchableOpacity>
+        <View style={{
+          position: 'absolute',
+          bottom: 80,
+          left: 16,
+          right: 16,
+          backgroundColor: isDayMode ? '#ffffffef' : '#0e0e14ef',
+          borderRadius: 24,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: theme.border,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.35,
+          shadowRadius: 20,
+          elevation: 10,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          gap: 12,
+          zIndex: 999,
+        }}>
+          {[
+            { label: 'Camera', icon: 'photo_camera', color: '#ec4899', action: () => { setShowMediaMenu(false); openRealCamera(); } },
+            { label: 'Gallery', icon: 'image', color: '#3b82f6', action: () => { setShowMediaMenu(false); openRealGallery(); } },
+            { label: 'Location', icon: 'location_on', color: '#10b981', action: () => { setShowMediaMenu(false); shareLocation(); } },
+            { label: 'Contact', icon: 'person', color: '#f59e0b', action: () => { setShowMediaMenu(false); shareContact(); } },
+            { label: 'Document', icon: 'description', color: '#8b5cf6', action: () => { setShowMediaMenu(false); shareDocument(); } },
+            { label: 'Audio', icon: 'mic', color: '#ef4444', action: () => { setShowMediaMenu(false); startRecording(); } },
+          ].map((item, idx) => (
+            <TouchableOpacity 
+              key={idx} 
+              onPress={item.action}
+              style={{
+                width: '30%',
+                aspectRatio: 1,
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: isDayMode ? '#f4f4f5' : '#1e1e2d',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+            >
+              <View style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: item.color + '15',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: 6,
+              }}>
+                <Icon name={item.icon} size={22} color={item.color} />
+              </View>
+              <Text style={{ color: theme.text, fontSize: 11, fontWeight: '700' }}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
       {/* Input */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View>
         {isBlocked ? (
           <View style={styles.blockedBannerContainer}>
             <Text style={styles.blockedBannerText}>
@@ -1466,19 +1715,19 @@ export default function ChatScreen({
             </Text>
           </View>
         ) : (
-          <View style={styles.inputArea}>
+          <View style={[styles.inputArea, { backgroundColor: theme.cardBg, borderTopColor: theme.border }]}>
             <View style={styles.encIndicator}>
               <View style={styles.encDot} />
-              <Text style={styles.encText}>
+              <Text style={[styles.encText, { color: theme.subText }]}>
                 {screenshotAllowed ? '📸 Screenshots allowed' : '📵 Screenshots blocked'}
               </Text>
             </View>
             {/* Recording indicator bar */}
             {isRecording && (
-              <View style={styles.recordingBar}>
+              <View style={[styles.recordingBar, { backgroundColor: theme.bg }]}>
                 <View style={styles.recordingDot} />
-                <Text style={styles.recordingTime}>{formatDuration(recordingDuration)}</Text>
-                <Text style={styles.recordingHint}>  ← Swipe to cancel</Text>
+                <Text style={[styles.recordingTime, { color: theme.text }]}>{formatDuration(recordingDuration)}</Text>
+                <Text style={[styles.recordingHint, { color: theme.subText }]}>  ← Swipe to cancel</Text>
                 <TouchableOpacity onPress={cancelRecording} style={styles.recordingCancelBtn}>
                   <Text style={styles.recordingCancelText}>✕</Text>
                 </TouchableOpacity>
@@ -1486,7 +1735,7 @@ export default function ChatScreen({
             )}
             <View style={styles.inputRow}>
               <TouchableOpacity 
-                style={styles.mediaBtn}
+                style={[styles.mediaBtn, { backgroundColor: isDayMode ? '#e4e4e7' : '#161622', borderColor: theme.border }]}
                 onPress={() => setShowMediaMenu(!showMediaMenu)}
               >
                 <Icon name="add" size={24} color="#d946ef" />
@@ -1495,40 +1744,42 @@ export default function ChatScreen({
                 style={[styles.cameraRollBtn, cameraRoll.length > 0 && styles.cameraRollBtnActive]}
                 onPress={() => setShowCameraRoll(!showCameraRoll)}
               >
-                <Icon name="image" size={20} color={cameraRoll.length > 0 ? '#d946ef' : '#8b8ba7'} />
+                <Icon name="image" size={20} color={cameraRoll.length > 0 ? '#d946ef' : theme.subText} />
                 {cameraRoll.length > 0 && (
                   <Text style={styles.cameraRollBadge}>{cameraRoll.length}</Text>
                 )}
               </TouchableOpacity>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: isDayMode ? '#f4f4f5' : '#1a1a1a', color: theme.text, borderColor: theme.border }]}
                 placeholder="Message likho..."
-                placeholderTextColor="#4b5563"
+                placeholderTextColor={theme.subText}
                 value={input}
                 onChangeText={setInput}
                 multiline
               />
-              {input.trim() ? (
-                <TouchableOpacity
-                  style={[styles.sendBtn, styles.sendBtnActive]}
-                  onPress={sendMessage}
-                >
-                  <Icon name="send" size={20} color="#d946ef" />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.micBtn, isRecording && styles.micBtnActive]}
-                  onPressIn={startRecording}
-                  onPressOut={stopRecording}
-                  activeOpacity={0.7}
-                >
-                  <Icon name={isRecording ? 'stop' : 'mic'} size={22} color={isRecording ? '#ef4444' : '#8b8ba7'} />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={[styles.micBtn, { backgroundColor: isDayMode ? '#e4e4e7' : '#161622', borderColor: theme.border }, isRecording && styles.micBtnActive]}
+                onPressIn={startRecording}
+                onPressOut={stopRecording}
+                activeOpacity={0.7}
+              >
+                <Icon name={isRecording ? 'stop' : 'mic'} size={22} color={isRecording ? '#ef4444' : theme.subText} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sendBtn, { backgroundColor: isDayMode ? '#e4e4e7' : '#161622', borderColor: theme.border }, input.trim() && styles.sendBtnActive]}
+                onPress={sendMessage}
+              >
+                <Icon name="send" size={20} color="#d946ef" />
+              </TouchableOpacity>
             </View>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </View>
+    </KeyboardAvoidingView>
+
+
+
+
 
       {/* ── Chat Preferences Modal ──────────────────────────────── */}
       <Modal visible={showChatMenuModal} transparent animationType="fade" onRequestClose={() => setShowChatMenuModal(false)}>
@@ -1768,7 +2019,7 @@ export default function ChatScreen({
               <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
               <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Messages self-delete after the selected time</Text>
               <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                {['off', '10s', '1m', '24h', '7d', '30d'].map((time) => (
+                {['off', '24h', '7d', '90d', '10s (Dev)'].map((time) => (
                   <TouchableOpacity
                     key={time}
                     style={{
@@ -1900,12 +2151,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    alignSelf: 'center',
     width: '100%',
-    maxWidth: Platform.OS === 'web' ? 600 : '100%',
-    borderLeftWidth: Platform.OS === 'web' ? 1 : 0,
-    borderRightWidth: Platform.OS === 'web' ? 1 : 0,
-    borderColor: '#1a1a24',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
 
   // ── Voice Recording ──────────────────────────────────────────
@@ -1922,11 +2169,20 @@ const styles = StyleSheet.create({
   recordingCancelBtn: { padding: 4 },
   recordingCancelText: { color: '#ff4d4d', fontWeight: '900', fontSize: 18 },
   micBtn: {
-    padding: 8,
-    justifyContent: 'center', alignItems: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#161622',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+    flexShrink: 0,
   },
   micBtnActive: {
     opacity: 0.7,
+    backgroundColor: '#1e1c0e',
   },
   micIcon: { fontSize: 20 },
 
@@ -1998,13 +2254,13 @@ const styles = StyleSheet.create({
   
   streakBadge: {
     backgroundColor: '#1a0a00',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ff4d4d30',
   },
-  streakText: { color: '#ff4d4d', fontWeight: '800', fontSize: 11 },
+  streakText: { color: '#ff4d4d', fontWeight: '800', fontSize: 10 },
   
   vcMenu: {
     backgroundColor: '#111',
@@ -2234,20 +2490,35 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendBtn: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#161622',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 4,
+    flexShrink: 0,
   },
-  sendBtnActive: {},
-  sendIcon: { fontSize: 22, color: '#d946ef' },
+  sendBtnActive: {
+    backgroundColor: '#1e1c0e',
+  },
+  sendIcon: { fontSize: 20, color: '#d946ef' },
   
   mediaBtn: {
-    padding: 8,
-    marginRight: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#161622',
+    borderWidth: 1,
+    borderColor: '#1e1e2d',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 4,
+    flexShrink: 0,
   },
-  mediaBtnIcon: { fontSize: 26, color: '#d946ef', fontWeight: '300' },
+  mediaBtnIcon: { fontSize: 24, color: '#d946ef', fontWeight: '300' },
   
   mediaMenu: {
     backgroundColor: '#111',

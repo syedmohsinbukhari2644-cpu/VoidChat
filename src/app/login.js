@@ -1,33 +1,45 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, SafeAreaView, StatusBar, Alert
+  TextInput, SafeAreaView, StatusBar, Alert, Platform
 } from 'react-native'
 import { loginUser, registerUser, setToken, sendOtp, verifyOtp } from './api'
 
 // ─── Design Tokens ────────────────────────────────────────────
 const C = {
-  bg:      '#060608',
+  bg: '#060608',
   surface: '#0e0e14',
-  card:    '#131319',
-  border:  '#1e1e2c',
+  card: '#131319',
+  border: '#1e1e2c',
   primary: '#c8ff00',
-  purple:  '#a855f7',
-  text:    '#f0f0ff',
-  muted:   '#6b7280',
-  faint:   '#2e2e3e',
+  purple: '#a855f7',
+  text: '#f0f0ff',
+  muted: '#6b7280',
+  faint: '#2e2e3e',
   success: '#4ade80',
 }
 
 export default function LoginScreen({ onLogin }) {
-  const [step, setStep]         = useState('main')
-  const [isLogin, setIsLogin]   = useState(true)
+  const [step, setStep] = useState('landing')
+  const [tilt, setTilt] = useState({ x: 0, y: 0 })
+  const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')
-  const [email, setEmail]       = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [otp, setOtp]           = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [focused, setFocused]   = useState(null)
+  const [otp, setOtp] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [focused, setFocused] = useState(null)
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    const handleMouse = (e) => {
+      const x = (window.innerWidth / 2 - e.clientX) / 40
+      const y = -(window.innerHeight / 2 - e.clientY) / 40
+      setTilt({ x, y })
+    }
+    window.addEventListener('mousemove', handleMouse)
+    return () => window.removeEventListener('mousemove', handleMouse)
+  }, [])
 
   // ── Handlers ────────────────────────────────────────────────
   const handleSendOTP = async () => {
@@ -103,7 +115,7 @@ export default function LoginScreen({ onLogin }) {
 
       {/* Background glow blobs */}
       <View style={styles.glowPurple} pointerEvents="none" />
-      <View style={styles.glowGreen}  pointerEvents="none" />
+      <View style={styles.glowGreen} pointerEvents="none" />
 
       <View style={styles.content}>
 
@@ -115,6 +127,115 @@ export default function LoginScreen({ onLogin }) {
           <Text style={styles.logoText}>VOID CHAT</Text>
           <Text style={styles.tagline}>Private  ·  Secure  ·  Free</Text>
         </View>
+
+        {/* ── STEP: Landing Page (3D Motion Feel) ────────────────── */}
+        {step === 'landing' && (
+          <View style={{ flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 }}>
+            {/* 3D Motion Perspective Feature Card */}
+            <View
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                backgroundColor: C.card,
+                borderRadius: 28,
+                borderWidth: 1,
+                borderColor: C.border,
+                padding: 24,
+                gap: 18,
+                transform: Platform.OS === 'web' ? [
+                  { perspective: 1000 },
+                  { rotateX: `${tilt.y}deg` },
+                  { rotateY: `${tilt.x}deg` }
+                ] : [],
+                shadowColor: C.primary,
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.15,
+                shadowRadius: 24,
+                elevation: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={{ fontSize: 28 }}>🛡️</Text>
+                <View>
+                  <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>VOID CHAT Beta</Text>
+                  <Text style={{ color: C.muted, fontSize: 12 }}>Version 1.0.0 (Standalone)</Text>
+                </View>
+              </View>
+
+              <Text style={{ color: C.text, fontSize: 14, lineHeight: 22, marginTop: 4 }}>
+                A futuristic, E2E encrypted platform with a zero-knowledge architecture. Star messages, lock stealth chats in a private vault, use disappearing timers, and earn VOID coins.
+              </Text>
+
+              {/* Bullet Features list */}
+              <View style={{ gap: 12, marginTop: 4 }}>
+                {[
+                  { icon: '🔐', t: 'E2E Encryption', d: 'Your keys, your chat logs. Devs see nothing.' },
+                  { icon: '⭐', t: 'Starred Sync', d: 'Securely sync flagged messages across devices.' },
+                  { icon: '💰', t: 'VOID Wallet', d: 'Earn and transfer tokens inside the ecosystem.' }
+                ].map((f, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                    <Text style={{ fontSize: 18 }}>{f.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.primary, fontSize: 13, fontWeight: '800' }}>{f.t}</Text>
+                      <Text style={{ color: C.muted, fontSize: 11, marginTop: 1 }}>{f.d}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* Launch Actions */}
+            <View style={{ width: '100%', maxWidth: 480, gap: 12, marginTop: 28 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: C.primary,
+                  borderRadius: 18,
+                  paddingVertical: 15,
+                  alignItems: 'center',
+                  shadowColor: C.primary,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 10,
+                  elevation: 6
+                }}
+                onPress={() => setStep('main')}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: C.bg, fontSize: 15, fontWeight: '900', letterSpacing: 0.5 }}>🔓 Launch Web App</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: 'rgba(200, 255, 0, 0.07)',
+                  borderRadius: 18,
+                  paddingVertical: 15,
+                  alignItems: 'center',
+                  borderWidth: 1.5,
+                  borderColor: C.primary,
+                  shadowColor: C.primary,
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 10,
+                  elevation: 5,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 10
+                }}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    window.open('https://drive.google.com/file/d/14sFEjRLzp82kTnT5vtFMtM6YBImosYNZ/view?usp=sharing', '_blank')
+                  } else {
+                    Alert.alert('Download', 'APK download is available on our website at: voidchat.tech')
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={{ fontSize: 18 }}>🤖</Text>
+                <Text style={{ color: C.primary, fontSize: 15, fontWeight: '900', letterSpacing: 0.5 }}>Download Android APK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* ── STEP: Main ───────────────────────────────── */}
         {step === 'main' && (
@@ -318,7 +439,7 @@ export default function LoginScreen({ onLogin }) {
 // ─── Styles ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content:   { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
+  content: { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
 
   // Background ambient glows
   glowPurple: {
@@ -333,7 +454,7 @@ const styles = StyleSheet.create({
   },
 
   // Logo
-  logoWrap:  { alignItems: 'center', marginBottom: 40 },
+  logoWrap: { alignItems: 'center', marginBottom: 40 },
   logoRing: {
     width: 80, height: 80, borderRadius: 40,
     backgroundColor: C.surface,
@@ -371,7 +492,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3, shadowRadius: 8,
   },
-  toggleText:       { color: C.muted,   fontWeight: '600', fontSize: 14 },
+  toggleText: { color: C.muted, fontWeight: '600', fontSize: 14 },
   toggleTextActive: { color: '#a855f7', fontWeight: '900', fontSize: 14 },
 
   // Security banner
@@ -381,7 +502,7 @@ const styles = StyleSheet.create({
     marginBottom: 20, borderWidth: 1, borderColor: '#a855f728',
   },
   secIcon: { fontSize: 18 },
-  secText:  { color: '#a855f7', fontSize: 12, fontWeight: '600' },
+  secText: { color: '#a855f7', fontSize: 12, fontWeight: '600' },
 
   // Form
   form: { gap: 14, marginBottom: 16 },
@@ -424,7 +545,7 @@ const styles = StyleSheet.create({
   },
 
   // Ghost / text button
-  ghostBtn:     { alignItems: 'center', paddingVertical: 14 },
+  ghostBtn: { alignItems: 'center', paddingVertical: 14 },
   ghostBtnText: { color: '#a855f7', fontSize: 14, fontWeight: '700' },
 
   // Bonus card
@@ -435,7 +556,7 @@ const styles = StyleSheet.create({
   },
   bonusEmoji: { fontSize: 30 },
   bonusTitle: { color: C.primary, fontWeight: '800', fontSize: 14 },
-  bonusSub:   { color: C.muted,   fontSize: 12, marginTop: 2 },
+  bonusSub: { color: C.muted, fontSize: 12, marginTop: 2 },
 
   // OTP info card
   infoCard: {
@@ -445,7 +566,7 @@ const styles = StyleSheet.create({
   },
   infoEmoji: { fontSize: 24 },
   infoTitle: { color: '#a855f7', fontWeight: '700', fontSize: 14 },
-  infoSub:   { color: C.muted,   fontSize: 12, marginTop: 2 },
+  infoSub: { color: C.muted, fontSize: 12, marginTop: 2 },
 
   // Verified card
   successCard: {
@@ -455,7 +576,7 @@ const styles = StyleSheet.create({
   },
   successEmoji: { fontSize: 28 },
   successTitle: { color: '#4ade80', fontWeight: '800', fontSize: 14 },
-  successSub:   { color: C.muted,   fontSize: 12, marginTop: 2 },
+  successSub: { color: C.muted, fontSize: 12, marginTop: 2 },
 
   // Footer
   footer: {
