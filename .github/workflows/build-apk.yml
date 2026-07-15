@@ -53,10 +53,9 @@ jobs:
       - name: Export NODE_BINARY for Gradle
         run: echo "NODE_BINARY=$(which node)" >> $GITHUB_ENV
 
-      - name: Increase Node memory
-        run: echo "NODE_OPTIONS=--max-old-space-size=8192" >> $GITHUB_ENV
-
       - name: Build Release APK
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           cd android
           ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m"
