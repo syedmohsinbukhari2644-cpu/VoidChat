@@ -12,6 +12,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
       moduleName.startsWith('@react-native-firebase/auth') ||
       moduleName.startsWith('@react-native-firebase') ||
       moduleName === 'react-native-webrtc' ||
+      moduleName === 'react-native-maps' ||
       moduleName.includes('webrtcService')
     ) {
       return {
