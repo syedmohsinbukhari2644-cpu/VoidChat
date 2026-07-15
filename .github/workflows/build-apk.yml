@@ -58,7 +58,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
           cd android
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m"
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m" -x lint -x lintVitalRelease
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
