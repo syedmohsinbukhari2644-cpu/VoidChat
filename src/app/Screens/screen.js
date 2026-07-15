@@ -13,7 +13,9 @@ import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
 import { Audio } from 'expo-av'
 import * as Location from 'expo-location'
-import MapView, { Marker } from 'react-native-maps'
+// react-native-maps removed - incompatible with RN 0.85
+const MapView = () => null;
+const Marker = () => null;
 import * as DocumentPicker from 'expo-document-picker'
 import * as Contacts from 'expo-contacts'
 
@@ -1338,20 +1340,8 @@ export default function ChatScreen({
                 >
                   <View style={[styles.locationBubble, { padding: 4 }]}>
                     <View style={{ width: 220, height: 150, borderRadius: 12, overflow: 'hidden' }}>
-                      {Platform.OS !== 'web' ? (
-                        <MapView
-                          style={{ width: '100%', height: '100%' }}
-                          initialRegion={{
-                            latitude: lat,
-                            longitude: lon,
-                            latitudeDelta: 0.01,
-                            longitudeDelta: 0.01,
-                          }}
-                          scrollEnabled={false}
-                          zoomEnabled={false}
-                        >
-                          <Marker coordinate={{ latitude: lat, longitude: lon }} />
-                        </MapView>
+                      {false ? (
+                        <View />
                       ) : (
                         <View style={{ width: '100%', height: '100%', backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center' }}>
                           <Text style={{ fontSize: 24 }}>📍</Text>
