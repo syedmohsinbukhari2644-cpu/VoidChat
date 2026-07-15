@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 18
           cache: 'npm'
-          cache-dependency-path: VoidChat/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Setup Java (JDK 17)
         uses: actions/setup-java@v4
@@ -32,25 +32,23 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          cd VoidChat
           npm install --legacy-peer-deps
 
       - name: Clean & Expo Prebuild
         run: |
-          cd VoidChat
           npx expo prebuild --platform android --clean
 
       - name: Grant Execute Permission to Gradlew
         run: |
-          chmod +x VoidChat/android/gradlew
+          chmod +x android/gradlew
 
       - name: Build Release APK
         run: |
-          cd VoidChat/android
+          cd android
           ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VOID-CHAT-RELEASE-APK
-          path: VoidChat/android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
