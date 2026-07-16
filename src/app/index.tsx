@@ -6016,36 +6016,6 @@ const styles = StyleSheet.create({
     gap: 8,
     overflow: 'hidden',
   },
-  modeToggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#0e0e14',
-    borderRadius: 20,
-    padding: 2,
-    borderWidth: 1,
-    borderColor: '#1e1e2c',
-    alignItems: 'center',
-  },
-  modeToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    gap: 4,
-  },
-  modeToggleActive: {
-    backgroundColor: '#1c1800',
-    borderWidth: 1,
-    borderColor: '#ffc80040',
-  },
-  modeToggleIcon: {
-    fontSize: 14,
-  },
-  modeToggleText: {
-    color: '#ffc800',
-    fontSize: 12,
-    fontWeight: '700',
-  },
   
   // Chat Settings styling classes
   settingsSection: {
