@@ -43,8 +43,8 @@
         {
           "android": {
             "minSdkVersion": 24,
-            "enableMinifyInReleaseBuilds": false,
-            "extraProguardRules": "-keep class expo.modules.kotlin.** { *; }\n-keep class expo.modules.** { *; }\n-keep class com.facebook.react.turbomodule.** { *; }"
+            "enableMinifyInReleaseBuilds": true,
+            "extraProguardRules": "-keep class expo.modules.kotlin.** { *; }\n-keep class expo.modules.** { *; }\n-keep class com.facebook.react.turbomodule.** { *; }\n-keep class com.facebook.react.bridge.** { *; }\n-keep class com.facebook.react.uimanager.** { *; }"
           }
         }
       ],
