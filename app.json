@@ -3,19 +3,10 @@
     "name": "VOID CHAT",
     "slug": "void-chat",
     "version": "1.0.0",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/44be8895-6567-4eb3-a787-4fbe60a20ebd"
-    },
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
     "android": {
       "package": "com.voidchat.app",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDummyKeyToPreventCrashOnAndroid"
-        }
-      },
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
@@ -34,7 +25,6 @@
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png",
       "shortName": "VOID CHAT",
       "themeColor": "#000000",
       "backgroundColor": "#000000",
@@ -46,7 +36,6 @@
       }
     },
     "plugins": [
-      "expo-image",
       "expo-router",
       "expo-splash-screen",
       [
