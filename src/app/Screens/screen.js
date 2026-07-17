@@ -2134,6 +2134,7 @@ export default function ChatScreen({
             </View>
           </View>
         </View>
+      </Modal>
       {/* ── Custom Premium Alert Modal ── */}
       <Modal
         visible={!!customAlert}
