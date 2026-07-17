@@ -100,6 +100,11 @@ export default function App() {
     { id: '3', name: 'Inklab Admin', avatar: 'I', time: '5 hours ago', content: '🎙️ Join our community debate at 8 PM tonight!', color: '#ff4d4d' },
   ])
   const [newStatusText, setNewStatusText] = useState('')
+  const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
+  const [statusType, setStatusType] = useState('text') // 'text' | 'media' | 'link' | 'audio'
+  const [statusMediaUri, setStatusMediaUri] = useState(null)
+  const [statusLinkUrl, setStatusLinkUrl] = useState('')
+  const [statusBgColor, setStatusBgColor] = useState('#6366f1') // Default Indigo
   const [starredMessages, setStarredMessages] = useState([])
   const [postContent, setPostContent] = useState('')
   const [postType, setPostType] = useState('text')
@@ -1134,18 +1139,68 @@ export default function App() {
     }
   }
 
+  const pickStatusMedia = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Photos permission is required to share image/video status!')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: true,
+        quality: 0.8,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setStatusMediaUri(result.assets[0].uri)
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to pick image/video!')
+    }
+  }
+
   const handlePostStatus = () => {
-    if (!newStatusText.trim()) return
+    let content = ''
+    let type = statusType
+    let color = '#c8ff00'
+
+    if (statusType === 'text') {
+      if (!newStatusText.trim()) {
+        Alert.alert('Error', 'Please write something first!')
+        return
+      }
+      content = newStatusText.trim()
+      color = statusBgColor
+    } else if (statusType === 'media') {
+      if (!statusMediaUri) {
+        Alert.alert('Error', 'Please select an image or video first!')
+        return
+      }
+      content = `[MEDIA] ${statusMediaUri}`
+    } else if (statusType === 'link') {
+      if (!statusLinkUrl.trim()) {
+        Alert.alert('Error', 'Please enter a URL first!')
+        return
+      }
+      content = `[LINK] ${statusLinkUrl.trim()}`
+    } else if (statusType === 'audio') {
+      content = `[AUDIO] 🎙️ Voice status update`
+    }
+
     const newStatus = {
       id: Date.now().toString(),
       name: `@${currentUser?.username || 'You'}`,
       avatar: (currentUser?.username?.[0] || 'Y').toUpperCase(),
       time: 'Just now',
-      content: newStatusText,
-      color: '#c8ff00'
+      content: content,
+      color: color
     }
+
     setMockStatuses([newStatus, ...mockStatuses])
     setNewStatusText('')
+    setStatusMediaUri(null)
+    setStatusLinkUrl('')
+    setShowCreateStatusModal(false)
     Alert.alert('Success', 'Status updated successfully! 🔥')
   }
 
@@ -1765,40 +1820,72 @@ export default function App() {
             </ScrollView>
           ) : (
             <ScrollView style={[styles.content, { padding: 16 }]} contentContainerStyle={{ gap: 16 }}>
-              {/* Post New Status */}
-              <View style={{ backgroundColor: theme.cardBg, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.border, gap: 12 }}>
-                <Text style={{ color: theme.primary, fontWeight: '800', fontSize: 14 }}>Post a Status Update</Text>
-                <TextInput
-                  style={{
-                    backgroundColor: theme.bg,
-                    color: theme.text,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    fontSize: 13,
-                    minHeight: 50,
-                    textAlignVertical: 'top'
-                  }}
-                  placeholder="Share what is on your mind..."
-                  placeholderTextColor="#4b5563"
-                  multiline
-                  value={newStatusText}
-                  onChangeText={setNewStatusText}
-                />
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: theme.primary,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    alignItems: 'center'
-                  }}
-                  onPress={handlePostStatus}
-                >
-                  <Text style={{ color: '#050608', fontWeight: '900', fontSize: 13 }}>Share Status 🔥</Text>
-                </TouchableOpacity>
-              </View>
+              {/* Premium Status Creation Trigger Card */}
+              <TouchableOpacity 
+                activeOpacity={0.9}
+                style={{
+                  backgroundColor: theme.cardBg,
+                  borderRadius: 22,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+                onPress={() => {
+                  setStatusType('text')
+                  setShowCreateStatusModal(true)
+                }}
+              >
+                <View style={[styles.chatAvatar, { backgroundColor: theme.primary + '20', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primary + '30' }]}>
+                  <Text style={{ fontSize: 20 }}>✍️</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>Post a Status Update</Text>
+                  <Text style={{ color: theme.subText, fontSize: 12 }}>What is on your mind today?</Text>
+                </View>
+                {/* Shortcuts */}
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <TouchableOpacity 
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => {
+                      setStatusType('text')
+                      setShowCreateStatusModal(true)
+                    }}
+                  >
+                    <Icon name="edit" size={16} color={theme.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
+                    onPress={async () => {
+                      setStatusType('media')
+                      setShowCreateStatusModal(true)
+                      await pickStatusMedia()
+                    }}
+                  >
+                    <Icon name="photo_camera" size={16} color="#d946ef" />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => {
+                      setStatusType('link')
+                      setShowCreateStatusModal(true)
+                    }}
+                  >
+                    <Icon name="link" size={16} color="#3b82f6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
+                    onPress={() => {
+                      setStatusType('audio')
+                      setShowCreateStatusModal(true)
+                    }}
+                  >
+                    <Icon name="mic" size={16} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
 
               {/* Status List */}
               <View style={{ gap: 12, paddingBottom: 30 }}>
@@ -1809,7 +1896,7 @@ export default function App() {
                     style={{
                       flexDirection: 'row',
                       backgroundColor: theme.cardBg,
-                      borderRadius: 16,
+                      borderRadius: 20,
                       padding: 14,
                       borderWidth: 1,
                       borderColor: theme.border,
@@ -1817,15 +1904,54 @@ export default function App() {
                       gap: 12
                     }}
                   >
-                    <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20 }]}>
-                      <Text style={[styles.avatarText, { fontSize: 13 }]}>{status.avatar}</Text>
+                    <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text style={[styles.avatarText, { fontSize: 14 }]}>{status.avatar}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
                         <Text style={{ color: theme.subText, fontSize: 10 }}>{status.time}</Text>
                       </View>
-                      <Text style={{ color: theme.text, fontSize: 13, marginTop: 4, lineHeight: 18 }}>{status.content}</Text>
+                      
+                      {/* Render status content dynamically based on type prefix */}
+                      {status.content.startsWith('[MEDIA] ') ? (
+                        <View style={{ marginTop: 6, gap: 4 }}>
+                          <Text style={{ color: theme.text, fontSize: 12, fontStyle: 'italic' }}>🖼️ Image / Video update</Text>
+                          <Image 
+                            source={{ uri: status.content.replace('[MEDIA] ', '') }} 
+                            style={{ width: '100%', height: 160, borderRadius: 12, borderWidth: 1, borderColor: theme.border }} 
+                            resizeMode="cover"
+                          />
+                        </View>
+                      ) : status.content.startsWith('[LINK] ') ? (
+                        <TouchableOpacity onPress={() => handleOpenLink(status.content.replace('[LINK] ', ''))} style={{ marginTop: 6 }}>
+                          <Text style={{ color: '#3b82f6', fontSize: 13, textDecorationLine: 'underline', fontWeight: '700' }}>
+                            🔗 {status.content.replace('[LINK] ', '')}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : status.content.startsWith('[AUDIO] ') ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, backgroundColor: theme.bg, padding: 8, borderRadius: 10, alignSelf: 'flex-start' }}>
+                          <Icon name="mic" size={14} color="#ef4444" />
+                          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>🎙️ Voice Status (0:05)</Text>
+                        </View>
+                      ) : (
+                        // Text update
+                        <View style={{
+                          backgroundColor: status.color && status.color !== '#c8ff00' ? status.color : 'transparent',
+                          padding: status.color && status.color !== '#c8ff00' ? 12 : 0,
+                          borderRadius: 12,
+                          marginTop: 6
+                        }}>
+                          <Text style={{ 
+                            color: status.color && status.color !== '#c8ff00' ? '#ffffff' : theme.text, 
+                            fontSize: 13, 
+                            fontWeight: status.color && status.color !== '#c8ff00' ? '800' : 'normal',
+                            lineHeight: 18 
+                          }}>
+                            {status.content}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                 ))}
@@ -5310,6 +5436,213 @@ export default function App() {
               <Text style={{ color: '#000000', fontWeight: '800', fontSize: 14 }}>Apply Avatar</Text>
             </TouchableOpacity>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Create Status Modal ── */}
+      <Modal
+        visible={showCreateStatusModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCreateStatusModal(false)}
+      >
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.85)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowCreateStatusModal(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1}
+            style={{
+              backgroundColor: '#0e0e14',
+              borderTopLeftRadius: 30,
+              borderTopRightRadius: 30,
+              borderWidth: 1,
+              borderColor: '#1e1e2c',
+              padding: 24,
+              gap: 20
+            }}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: theme.primary, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>Create Status Update</Text>
+              <TouchableOpacity onPress={() => setShowCreateStatusModal(false)} style={{ padding: 4 }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>✕ Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Premium Selector Tabs */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#161622', borderRadius: 16, padding: 4, gap: 4 }}>
+              {[
+                { type: 'text', label: '📝 Text' },
+                { type: 'media', label: '📷 Media' },
+                { type: 'link', label: '🔗 Link' },
+                { type: 'audio', label: '🎙️ Voice' }
+              ].map(tab => (
+                <TouchableOpacity
+                  key={tab.type}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                    backgroundColor: statusType === tab.type ? theme.primary : 'transparent'
+                  }}
+                  onPress={async () => {
+                    setStatusType(tab.type)
+                    if (tab.type === 'media') {
+                      await pickStatusMedia()
+                    }
+                  }}
+                >
+                  <Text style={{
+                    color: statusType === tab.type ? '#050608' : '#8b8ba7',
+                    fontSize: 12,
+                    fontWeight: '800'
+                  }}>
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Dynamic Content Views */}
+            {statusType === 'text' && (
+              <View style={{ gap: 12 }}>
+                {/* Background Color Palette */}
+                <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                  <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '700' }}>Background:</Text>
+                  {['#6366f1', '#ec4899', '#14b8a6', '#8b5cf6', '#1e293b', '#c8ff00'].map(color => (
+                    <TouchableOpacity
+                      key={color}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 13,
+                        backgroundColor: color,
+                        borderWidth: statusBgColor === color ? 2 : 0,
+                        borderColor: '#ffffff'
+                      }}
+                      onPress={() => setStatusBgColor(color)}
+                    />
+                  ))}
+                </View>
+
+                {/* Input Card with Dynamic Background */}
+                <View style={{ backgroundColor: statusBgColor, borderRadius: 16, padding: 16, minHeight: 120, justifyContent: 'center' }}>
+                  <TextInput
+                    style={{
+                      color: statusBgColor === '#c8ff00' ? '#000000' : '#ffffff',
+                      fontSize: 16,
+                      fontWeight: '800',
+                      textAlign: 'center',
+                      padding: 0
+                    }}
+                    placeholder="Type a status update..."
+                    placeholderTextColor={statusBgColor === '#c8ff00' ? '#4b5563' : '#cbd5e1'}
+                    multiline
+                    value={newStatusText}
+                    onChangeText={setNewStatusText}
+                  />
+                </View>
+              </View>
+            )}
+
+            {statusType === 'media' && (
+              <View style={{ gap: 12, alignItems: 'center' }}>
+                <TouchableOpacity
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#161622',
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: '#1e1e2c',
+                    paddingVertical: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6
+                  }}
+                  onPress={pickStatusMedia}
+                >
+                  <Icon name="image" size={24} color="#d946ef" />
+                  <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>Choose Photo or Video</Text>
+                </TouchableOpacity>
+
+                {statusMediaUri ? (
+                  <View style={{ width: '100%', height: 160, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2c' }}>
+                    <Image source={{ uri: statusMediaUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                  </View>
+                ) : (
+                  <Text style={{ color: theme.subText, fontSize: 12 }}>No file selected</Text>
+                )}
+              </View>
+            )}
+
+            {statusType === 'link' && (
+              <View style={{ gap: 12 }}>
+                <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '700' }}>Paste Link URL:</Text>
+                <TextInput
+                  style={{
+                    backgroundColor: '#161622',
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: '#1e1e2c',
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    color: '#f0f0ff',
+                    fontSize: 13
+                  }}
+                  placeholder="https://example.com"
+                  placeholderTextColor="#4b5563"
+                  value={statusLinkUrl}
+                  onChangeText={setStatusLinkUrl}
+                  autoCapitalize="none"
+                />
+              </View>
+            )}
+
+            {statusType === 'audio' && (
+              <View style={{ gap: 12, alignItems: 'center', paddingVertical: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 36,
+                    backgroundColor: '#ef444420',
+                    borderWidth: 2,
+                    borderColor: '#ef444450',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onPress={() => Alert.alert('🎙️ Voice Status', 'Voice recording triggers mic, releasing saves as status')}
+                >
+                  <Icon name="mic" size={32} color="#ef4444" />
+                </TouchableOpacity>
+                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>Tap to Record Voice Status</Text>
+                <Text style={{ color: theme.subText, fontSize: 12 }}>Record up to 30 seconds of audio update</Text>
+              </View>
+            )}
+
+            {/* Post Button */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.primary,
+                borderRadius: 16,
+                paddingVertical: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: theme.primary,
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.3,
+                shadowRadius: 12,
+                elevation: 6,
+                marginTop: 10
+              }}
+              onPress={handlePostStatus}
+            >
+              <Text style={{ color: '#050608', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>Share Status 🚀</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
