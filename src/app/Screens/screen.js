@@ -11,7 +11,7 @@ import rawWebrtcService from '../../utils/webrtcService'
 import * as ImagePicker from 'expo-image-picker'
 import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
-import { Audio } from 'expo-av'
+// expo-av removed — caused LazyKType crash on SDK 56
 import * as Location from 'expo-location'
 // react-native-maps removed - incompatible with RN 0.85
 const MapView = () => null;
@@ -781,28 +781,9 @@ export default function ChatScreen({
           console.log('Web audio stream failed')
         }
       } else {
-        // Native Recording using expo-av
-        const { status } = await Audio.requestPermissionsAsync()
-        if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'Microphone access is required to record voice notes.')
-          return
-        }
-
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-        })
-
-        const { recording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        )
-        recordingRef.current = recording
-
-        setIsRecording(true)
-        setRecordingDuration(0)
-        recordingTimerRef.current = setInterval(() => {
-          setRecordingDuration(prev => prev + 1)
-        }, 1000)
+        // Voice recording — temporarily disabled (expo-av removed due to SDK 56 crash)
+        Alert.alert('🎙️ Voice Note', 'Voice recording feature coming soon!')
+        return
       }
     } catch (err) {
       console.log('Mic init error:', err)
@@ -836,8 +817,8 @@ export default function ChatScreen({
     } else {
       if (!recordingRef.current) return
       try {
-        await recordingRef.current.stopAndUnloadAsync()
-        const uri = recordingRef.current.getURI()
+        await recordingRef.current.stop()
+        const uri = recordingRef.current.uri
         recordingRef.current = null
         sendVoiceMsg(uri, duration)
       } catch (err) {
@@ -859,7 +840,7 @@ export default function ChatScreen({
     } else {
       if (!recordingRef.current) return
       try {
-        await recordingRef.current.stopAndUnloadAsync()
+        await recordingRef.current.stop()
         recordingRef.current = null
       } catch (err) {}
     }
@@ -896,28 +877,10 @@ export default function ChatScreen({
           setPlayingMsgId(msgId)
         }
       } else {
-        // Native audio playback using expo-av
-        if (soundObjectRef.current) {
-          await soundObjectRef.current.unloadAsync()
-          soundObjectRef.current = null
-        }
-
-        if (playingMsgId === msgId) {
-          setPlayingMsgId(null)
-          return
-        }
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: audioUrl },
-          { shouldPlay: true }
-        )
-        soundObjectRef.current = sound
-        setPlayingMsgId(msgId)
-
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.didJustFinish) {
-            setPlayingMsgId(null)
-            soundObjectRef.current = null
+        // Native audio playback — temporarily disabled (expo-av removed)
+        Alert.alert('🔊 Audio', 'Voice note playback coming soon!')
+        return
+      
           }
         })
       }
