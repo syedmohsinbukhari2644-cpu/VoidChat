@@ -1972,53 +1972,6 @@ export default function ChatScreen({
               </View>
             </View>
 
-            {/* ── Lock Chat ── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔒 Lock Chat (Vault)</Text>
-                <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Move to Secret Vault — PIN + Fingerprint protected</Text>
-              </View>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => { if (onLockToggle) onLockToggle(contact.id || contact.userId) }}
-                style={{
-                  width: 50, height: 28, borderRadius: 14,
-                  backgroundColor: isLocked ? '#c8ff00' : '#27272a',
-                  padding: 3, justifyContent: 'center',
-                  alignItems: isLocked ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isLocked ? '#050608' : '#a1a1aa' }} />
-              </TouchableOpacity>
-            </View>
-
-            {/* ── Disappearing Messages ── */}
-            <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
-              <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Messages self-delete after the selected time</Text>
-              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                {['off', '24h', '7d', '90d', '10s (Dev)'].map((time) => (
-                  <TouchableOpacity
-                    key={time}
-                    style={{
-                      paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
-                      borderColor: disappearingMode === time ? '#c8ff00' : '#1e1e2c',
-                      backgroundColor: disappearingMode === time ? 'rgba(200,255,0,0.1)' : 'transparent',
-                      alignItems: 'center',
-                    }}
-                    onPress={() => {
-                      setDisappearingMode(time)
-                      Alert.alert('⏳ Disappearing Messages', `Timer set to: ${time === 'off' ? 'Off' : time}`)
-                    }}
-                  >
-                    <Text style={{ color: disappearingMode === time ? '#c8ff00' : '#f0f0ff', fontSize: 12, fontWeight: '800' }}>
-                      {time.toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
             {/* ── Add Member to Group ── (group chats only) */}
             {contact?.isGroup && (
               <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
