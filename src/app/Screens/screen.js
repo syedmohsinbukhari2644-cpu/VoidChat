@@ -880,9 +880,6 @@ export default function ChatScreen({
         // Native audio playback — temporarily disabled (expo-av removed)
         Alert.alert('🔊 Audio', 'Voice note playback coming soon!')
         return
-      
-          }
-        })
       }
     } catch (err) {
       console.log('Error playing sound:', err)
