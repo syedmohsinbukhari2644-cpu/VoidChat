@@ -82,6 +82,17 @@ export default function ChatScreen({
     primary: nameColor || '#c8ff00'
   }
 
+  const [customAlert, setCustomAlert] = useState(null)
+  const Alert = {
+    alert: (title, message, buttons = []) => {
+      setCustomAlert({
+        title,
+        message,
+        buttons: buttons && buttons.length > 0 ? buttons : [{ text: 'OK' }]
+      })
+    }
+  }
+
   const isBlocked = blockedUsers?.includes(contact?.id || contact?.userId)
   const [messages, setMessages] = useState([])
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -90,8 +101,11 @@ export default function ChatScreen({
     if (!contact?.id) return
     try {
       const res = await getMessages(contact.id)
-      if (res.data && Array.isArray(res.data)) {
-        const mapped = res.data.map(m => {
+      const dataArray = res.data && Array.isArray(res.data) 
+        ? res.data 
+        : (res.data?.messages && Array.isArray(res.data.messages) ? res.data.messages : null)
+      if (dataArray) {
+        const mapped = dataArray.map(m => {
           const content = m.content || ''
           const decrypted = isEncrypted(content) ? decryptMessage(content) : content
           
@@ -193,8 +207,14 @@ export default function ChatScreen({
   const [showCameraRoll, setShowCameraRoll] = useState(false)
   const [selectedDraft, setSelectedDraft] = useState(null)
   const [showDraftPreview, setShowDraftPreview] = useState(false)
+  const [previewImageUri, setPreviewImageUri] = useState(null)
 
-
+  const handleSendPreviewImage = async () => {
+    if (!previewImageUri) return
+    const uriToSend = previewImageUri
+    setPreviewImageUri(null)
+    await sendMediaMessage('image', uriToSend)
+  }
   // ── Voice Recording State ─────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
@@ -587,7 +607,7 @@ export default function ChatScreen({
         quality: 0.8,
       })
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        sendMediaMessage('image', result.assets[0].uri)
+        setPreviewImageUri(result.assets[0].uri)
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to open camera.')
@@ -607,7 +627,7 @@ export default function ChatScreen({
         quality: 0.8,
       })
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        sendMediaMessage('image', result.assets[0].uri)
+        setPreviewImageUri(result.assets[0].uri)
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to open gallery.')
@@ -1733,12 +1753,20 @@ export default function ChatScreen({
 
       {/* ── Chat Preferences Modal ──────────────────────────────── */}
       <Modal visible={showChatMenuModal} transparent animationType="fade" onRequestClose={() => setShowChatMenuModal(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
-          <ScrollView
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+          activeOpacity={1}
+          onPress={() => setShowChatMenuModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
             style={{ width: '95%', maxHeight: '90%' }}
-            contentContainerStyle={{ backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}
-            keyboardShouldPersistTaps="handled"
           >
+            <ScrollView
+              style={{ width: '100%' }}
+              contentContainerStyle={{ backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}
+              keyboardShouldPersistTaps="handled"
+            >
             {/* Header */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 12 }}>
               <Text style={{ color: '#ffd700', fontSize: 16, fontWeight: '800' }}>🛠️ Chat Preferences</Text>
@@ -2089,7 +2117,159 @@ export default function ChatScreen({
             </TouchableOpacity>
 
           </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+
+      {/* ── Image Preview Modal ── */}
+      <Modal
+        visible={!!previewImageUri}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUri(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#c8ff00', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }}>🖼️ Send Image</Text>
+              <TouchableOpacity onPress={() => setPreviewImageUri(null)} style={{ padding: 4 }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 13, fontWeight: '700' }}>✕ Cancel</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Image Preview Container */}
+            <View style={{ width: '100%', height: 280, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2d', backgroundColor: '#050508', justifyContent: 'center', alignItems: 'center' }}>
+              {previewImageUri ? (
+                <Image source={{ uri: previewImageUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              ) : null}
+            </View>
+
+            {/* Actions */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#161622',
+                  borderWidth: 1,
+                  borderColor: '#1e1e2c',
+                  paddingVertical: 14,
+                  borderRadius: 16,
+                  alignItems: 'center'
+                }}
+                onPress={() => setPreviewImageUri(null)}
+              >
+                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: '#c8ff00',
+                  paddingVertical: 14,
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  shadowColor: '#c8ff00',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 10,
+                  elevation: 5
+                }}
+                onPress={handleSendPreviewImage}
+              >
+                <Text style={{ color: '#050608', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>Send Image ⚡</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
+      {/* ── Custom Premium Alert Modal ── */}
+      <Modal
+        visible={!!customAlert}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setCustomAlert(null)}
+      >
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.9)', justifyContent: 'center', alignItems: 'center', padding: 24 }}
+          activeOpacity={1}
+          onPress={() => setCustomAlert(null)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1}
+            style={{
+              width: '100%',
+              maxWidth: 320,
+              backgroundColor: '#0e0e14',
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: theme.primary || '#c8ff00',
+              padding: 24,
+              alignItems: 'center',
+              gap: 16,
+              shadowColor: theme.primary || '#c8ff00',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.15,
+              shadowRadius: 20,
+              elevation: 8
+            }}
+          >
+            {/* Alert Accent Indicator */}
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: (theme.primary || '#c8ff00') + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: (theme.primary || '#c8ff00') + '25' }}>
+              <Text style={{ fontSize: 20 }}>🔔</Text>
+            </View>
+
+            {/* Content */}
+            <View style={{ alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: theme.text || '#f0f0ff', fontSize: 16, fontWeight: '900', textAlign: 'center', letterSpacing: 0.3 }}>
+                {customAlert?.title}
+              </Text>
+              {customAlert?.message ? (
+                <Text style={{ color: theme.subText || '#8b8ba7', fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
+                  {customAlert?.message}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Buttons Row / Column */}
+            <View style={{ width: '100%', gap: 10, marginTop: 4 }}>
+              {customAlert?.buttons.map((btn, idx) => {
+                const isDestructive = btn.style === 'destructive'
+                const isCancel = btn.style === 'cancel'
+                
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      width: '100%',
+                      backgroundColor: isDestructive 
+                        ? '#ef4444' 
+                        : (isCancel ? '#161622' : (theme.primary || '#c8ff00')),
+                      borderWidth: isCancel ? 1 : 0,
+                      borderColor: '#1e1e2c',
+                      paddingVertical: 12,
+                      borderRadius: 14,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onPress={() => {
+                      setCustomAlert(null)
+                      if (btn.onPress) btn.onPress()
+                    }}
+                  >
+                    <Text style={{
+                      color: isDestructive 
+                        ? '#ffffff' 
+                        : (isCancel ? '#8b8ba7' : '#050608'),
+                      fontSize: 13,
+                      fontWeight: '800'
+                    }}>
+                      {btn.text}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
     </SafeAreaView>

@@ -537,6 +537,17 @@ export default function App() {
     primary: themeColor,
   }
 
+  const [customAlert, setCustomAlert] = useState(null)
+  const Alert = {
+    alert: (title, message, buttons = []) => {
+      setCustomAlert({
+        title,
+        message,
+        buttons: buttons && buttons.length > 0 ? buttons : [{ text: 'OK' }]
+      })
+    }
+  }
+
   useEffect(() => {
     if (isLoggedIn) {
       loadFeed()
@@ -1824,13 +1835,13 @@ export default function App() {
         </View>
       ) : (
         <ScrollView style={styles.content}>
-          <View style={styles.adBanner}>
-            <Text style={styles.adText}>📢 Social DMs & Updates</Text>
+          <View style={[styles.adBanner, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+            <Text style={[styles.adText, { color: theme.subText }]}>📢 Social DMs & Updates</Text>
           </View>
           {socialModeChats.map(chat => (
             <TouchableOpacity
               key={chat.id}
-              style={styles.chatItem}
+              style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
               onPress={() => setShowChat(chat)}
             >
               <View style={{ position: 'relative' }}>
@@ -1846,8 +1857,8 @@ export default function App() {
                 )}
               </View>
               <View style={styles.chatInfo}>
-                <Text style={styles.chatName}>{chat.name}</Text>
-                <Text style={styles.chatLast}>🔐 Social Chat Message</Text>
+                <Text style={[styles.chatName, { color: theme.text }]}>{chat.name}</Text>
+                <Text style={[styles.chatLast, { color: theme.subText }]}>🔐 Social Chat Message</Text>
               </View>
               {chat.unread > 0 && (
                 <View style={styles.unreadBadge}>
@@ -5299,6 +5310,97 @@ export default function App() {
               <Text style={{ color: '#000000', fontWeight: '800', fontSize: 14 }}>Apply Avatar</Text>
             </TouchableOpacity>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Custom Premium Alert Modal ── */}
+      <Modal
+        visible={!!customAlert}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setCustomAlert(null)}
+      >
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.9)', justifyContent: 'center', alignItems: 'center', padding: 24 }}
+          activeOpacity={1}
+          onPress={() => setCustomAlert(null)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1}
+            style={{
+              width: '100%',
+              maxWidth: 320,
+              backgroundColor: '#0e0e14',
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: theme.primary || '#c8ff00',
+              padding: 24,
+              alignItems: 'center',
+              gap: 16,
+              shadowColor: theme.primary || '#c8ff00',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.15,
+              shadowRadius: 20,
+              elevation: 8
+            }}
+          >
+            {/* Alert Accent Indicator */}
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: (theme.primary || '#c8ff00') + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: (theme.primary || '#c8ff00') + '25' }}>
+              <Text style={{ fontSize: 20 }}>🔔</Text>
+            </View>
+
+            {/* Content */}
+            <View style={{ alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: theme.text || '#f0f0ff', fontSize: 16, fontWeight: '900', textAlign: 'center', letterSpacing: 0.3 }}>
+                {customAlert?.title}
+              </Text>
+              {customAlert?.message ? (
+                <Text style={{ color: theme.subText || '#8b8ba7', fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
+                  {customAlert?.message}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Buttons Row / Column */}
+            <View style={{ width: '100%', gap: 10, marginTop: 4 }}>
+              {customAlert?.buttons.map((btn, idx) => {
+                const isDestructive = btn.style === 'destructive'
+                const isCancel = btn.style === 'cancel'
+                
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      width: '100%',
+                      backgroundColor: isDestructive 
+                        ? '#ef4444' 
+                        : (isCancel ? '#161622' : (theme.primary || '#c8ff00')),
+                      borderWidth: isCancel ? 1 : 0,
+                      borderColor: '#1e1e2c',
+                      paddingVertical: 12,
+                      borderRadius: 14,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onPress={() => {
+                      setCustomAlert(null)
+                      if (btn.onPress) btn.onPress()
+                    }}
+                  >
+                    <Text style={{
+                      color: isDestructive 
+                        ? '#ffffff' 
+                        : (isCancel ? '#8b8ba7' : '#050608'),
+                      fontSize: 13,
+                      fontWeight: '800'
+                    }}>
+                      {btn.text}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
