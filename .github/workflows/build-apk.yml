@@ -64,7 +64,7 @@ jobs:
           EXPO_NO_TELEMETRY: 1
           CI: 1
 
-      - name: Fix Expo dependencies (expo-av crash fix)
+      - name: Fix Expo dependencies
         run: npx expo install --fix
         env:
           EXPO_NO_TELEMETRY: 1

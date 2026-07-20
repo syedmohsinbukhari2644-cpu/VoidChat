@@ -22,10 +22,10 @@ const app = express()
 // Security: Enable CORS properly
 app.use(cors())
 
-// Security: Rate limiting to prevent DDoS and Brute Force attacks
+// Security: Rate limiting set to high production threshold for WhatsApp-like zero-lag chat
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100000, // WhatsApp-style unlimited throughput for active live messaging
   message: 'Too many requests from this IP, please try again after 15 minutes',
   standardHeaders: true,
   legacyHeaders: false,
@@ -68,9 +68,90 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000
 
+const http = require('http')
+const socketIO = require('socket.io')
+
+const server = http.createServer(app)
+const io = socketIO(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+})
+
+// Store online users: userId -> socket.id
+const onlineUsers = new Map()
+
+app.set('io', io)
+app.set('onlineUsers', onlineUsers)
+
+io.on('connection', (socket) => {
+  console.log('⚡ User connected to socket:', socket.id)
+
+  socket.on('user-online', (userId) => {
+    if (userId) {
+      onlineUsers.set(userId, socket.id)
+      console.log(`👤 User ${userId} is online with socket ${socket.id}`)
+    }
+  })
+
+  socket.on('call-user', ({ to, from, fromName, offer, callType }) => {
+    const targetSocketId = onlineUsers.get(to)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('incoming-call', {
+        from,
+        fromName,
+        offer,
+        callType
+      })
+    } else {
+      socket.emit('call-unavailable', { userId: to })
+    }
+  })
+
+  socket.on('call-accepted', ({ to, answer }) => {
+    const targetSocketId = onlineUsers.get(to)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-accepted', { answer })
+    }
+  })
+
+  socket.on('call-rejected', ({ to }) => {
+    const targetSocketId = onlineUsers.get(to)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-rejected')
+    }
+  })
+
+  socket.on('call-ended', ({ to }) => {
+    const targetSocketId = onlineUsers.get(to)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-ended')
+    }
+  })
+
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    const targetSocketId = onlineUsers.get(to)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('ice-candidate', { candidate })
+    }
+  })
+
+  socket.on('disconnect', () => {
+    console.log('❌ Socket disconnected:', socket.id)
+    for (const [userId, socketId] of onlineUsers.entries()) {
+      if (socketId === socket.id) {
+        onlineUsers.delete(userId)
+        console.log(`👤 User ${userId} went offline`)
+        break
+      }
+    }
+  })
+})
+
 // Only start the server locally if not in a Vercel serverless environment
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`
     ╔══════════════════════════════════════╗
     ║      🔓 VOID CHAT Server Running!    ║
@@ -85,7 +166,7 @@ if (!process.env.VERCEL) {
     ║  Users:         /api/users           ║
     ║  Notifications: /api/notifications   ║
     ║                                      ║
-    ║  Status: Ready! ✅                   ║
+    ║  Status: Ready! ✅ (With Sockets)    ║
     ╚══════════════════════════════════════╝
     `)
   })
@@ -93,5 +174,3 @@ if (!process.env.VERCEL) {
 
 // Export for Vercel Serverless
 module.exports = app
-
-

@@ -93,56 +93,59 @@ export default function ChatScreen({
     }
   }
 
-  const isBlocked = blockedUsers?.includes(contact?.id || contact?.userId)
+  const targetUserId = contact?._id || contact?.id || contact?.userId
+  const isBlocked = blockedUsers?.includes(targetUserId)
   const [messages, setMessages] = useState([])
   const [loadingMessages, setLoadingMessages] = useState(false)
 
   const fetchMessages = async () => {
-    if (!contact?.id) return
+    const targetId = contact?._id || contact?.id || contact?.userId
+    if (!targetId) return
     try {
-      const res = await getMessages(contact.id)
+      const res = await getMessages(targetId)
       const dataArray = res.data && Array.isArray(res.data) 
         ? res.data 
         : (res.data?.messages && Array.isArray(res.data.messages) ? res.data.messages : null)
       if (dataArray) {
         const mapped = dataArray.map(m => {
           const content = m.content || ''
-          const decrypted = isEncrypted(content) ? decryptMessage(content) : content
+          const senderIdStr = typeof m.sender === 'object' ? (m.sender?._id || m.sender?.id) : m.sender
+          const isThem = String(senderIdStr) === String(targetId)
           
           let type = m.messageType || 'text'
-          let parsedContent = decrypted
+          let parsedContent = content
           let contactInfo = null
 
-          if (decrypted.startsWith('[IMAGE] ')) {
+          if (content.startsWith('[IMAGE] ')) {
             type = 'image'
-            parsedContent = decrypted.replace('[IMAGE] ', '')
-          } else if (decrypted.startsWith('[LOCATION] ')) {
+            parsedContent = content.replace('[IMAGE] ', '')
+          } else if (content.startsWith('[LOCATION] ')) {
             type = 'location'
-            parsedContent = decrypted.replace('[LOCATION] ', '')
-          } else if (decrypted.startsWith('[CONTACT] ')) {
+            parsedContent = content.replace('[LOCATION] ', '')
+          } else if (content.startsWith('[CONTACT] ')) {
             type = 'contact'
-            parsedContent = decrypted.replace('[CONTACT] ', '')
+            parsedContent = content.replace('[CONTACT] ', '')
             const nameMatch = parsedContent.match(/Contact: ([^(]+)/) || parsedContent.match(/👤 Contact: ([^(]+)/)
             const phoneMatch = parsedContent.match(/\(([^)]+)\)/)
             contactInfo = {
               name: nameMatch ? nameMatch[1].trim() : 'Contact',
               phone: phoneMatch ? phoneMatch[1].trim() : parsedContent
             }
-          } else if (decrypted.startsWith('[DOCUMENT] ')) {
+          } else if (content.startsWith('[DOCUMENT] ')) {
             type = 'document'
-            parsedContent = decrypted.replace('[DOCUMENT] ', '')
+            parsedContent = content.replace('[DOCUMENT] ', '')
           }
 
           return {
             id: m._id || m.id,
-            from: m.senderId === contact.id ? 'them' : 'me',
+            from: isThem ? 'them' : 'me',
             type: type,
             text: content,
             content: parsedContent,
             originalText: parsedContent,
             contact: contactInfo,
-            time: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date(m.createdAt).getTime(),
+            time: new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date(m.createdAt || Date.now()).getTime(),
             streak: false,
           }
         })
@@ -156,8 +159,40 @@ export default function ChatScreen({
   useEffect(() => {
     fetchMessages()
     const interval = setInterval(fetchMessages, 3000)
-    return () => clearInterval(interval)
-  }, [contact?.id])
+
+    const socket = rawWebrtcService.socket
+    const handleReceiveMessage = (data) => {
+      const targetId = contact?._id || contact?.id || contact?.userId
+      if (data && String(data.sender) === String(targetId)) {
+        const newMsg = {
+          id: data._id || Date.now().toString(),
+          from: 'them',
+          type: 'text',
+          text: data.content,
+          content: data.content,
+          originalText: data.content,
+          time: new Date(data.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: new Date(data.createdAt || Date.now()).getTime(),
+          streak: false,
+        }
+        setMessages(prev => {
+          if (prev.some(m => m.id === newMsg.id)) return prev
+          return [...prev, newMsg]
+        })
+      }
+    }
+
+    if (socket) {
+      socket.on('receive-message', handleReceiveMessage)
+    }
+
+    return () => {
+      clearInterval(interval)
+      if (socket) {
+        socket.off('receive-message', handleReceiveMessage)
+      }
+    }
+  }, [contact?._id, contact?.id, contact?.userId])
 
   const [input, setInput] = useState('')
   const [streak, setStreak] = useState(47)
@@ -430,23 +465,42 @@ export default function ChatScreen({
   const sendMessage = async () => {
     if (!input.trim()) return
     const originalText = input.trim()
-    const encryptedText = encryptMessage(originalText)
+    const targetId = contact?._id || contact?.id || contact?.userId
+    if (!targetId) {
+      Alert.alert('Error', 'Contact ID not found!')
+      return
+    }
+    
     setInput('')
+    const tempId = 'temp-' + Date.now()
+    const optimisticMsg = {
+      id: tempId,
+      from: 'me',
+      type: 'text',
+      text: originalText,
+      content: originalText,
+      originalText: originalText,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      streak: false,
+    }
+
+    setMessages(prev => [...prev, optimisticMsg])
 
     try {
-      if (!contact?.id) {
-        Alert.alert('Error', 'Contact ID not found!')
-        return
-      }
-      await sendApiMessage({
-        receiverId: contact.id,
-        content: encryptedText
+      const res = await sendApiMessage({
+        receiverId: targetId,
+        content: originalText
       })
-      await fetchMessages()
+      if (res.data?.messageData?._id) {
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: res.data.messageData._id } : m))
+      }
       setStreak(prev => prev + 1)
     } catch (e) {
+      console.log('Error sending message:', e)
       Alert.alert('Error', 'Failed to send message!')
-      setInput(originalText) // Restore text on failure
+      setMessages(prev => prev.filter(m => m.id !== tempId))
+      setInput(originalText)
     }
   }
 
@@ -1710,15 +1764,6 @@ export default function ChatScreen({
               >
                 <Icon name="add" size={24} color="#d946ef" />
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.cameraRollBtn, cameraRoll.length > 0 && styles.cameraRollBtnActive]}
-                onPress={() => setShowCameraRoll(!showCameraRoll)}
-              >
-                <Icon name="image" size={20} color={cameraRoll.length > 0 ? '#d946ef' : theme.subText} />
-                {cameraRoll.length > 0 && (
-                  <Text style={styles.cameraRollBadge}>{cameraRoll.length}</Text>
-                )}
-              </TouchableOpacity>
               <TextInput
                 style={[styles.input, { backgroundColor: isDayMode ? '#f4f4f5' : '#1a1a1a', color: theme.text, borderColor: theme.border }]}
                 placeholder="Message likho..."
@@ -1747,14 +1792,10 @@ export default function ChatScreen({
       </View>
     </KeyboardAvoidingView>
 
-
-
-
-
-      {/* ── Chat Preferences Modal ──────────────────────────────── */}
+    {/* ── Chat Preferences Modal ──────────────────────────────── */}
       <Modal visible={showChatMenuModal} transparent animationType="fade" onRequestClose={() => setShowChatMenuModal(false)}>
         <TouchableOpacity
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+          style={{ flex: 1, backgroundColor: 'rgba(3, 3, 8, 0.88)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
           activeOpacity={1}
           onPress={() => setShowChatMenuModal(false)}
         >
@@ -1764,27 +1805,47 @@ export default function ChatScreen({
           >
             <ScrollView
               style={{ width: '100%' }}
-              contentContainerStyle={{ backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}
+              contentContainerStyle={{
+                backgroundColor: '#090a10',
+                borderRadius: 28,
+                borderWidth: 1,
+                borderColor: '#c8ff0040',
+                padding: 22,
+                gap: 16,
+                shadowColor: '#c8ff00',
+                shadowOffset: { width: 0, height: 12 },
+                shadowOpacity: 0.2,
+                shadowRadius: 25,
+                elevation: 15
+              }}
               keyboardShouldPersistTaps="handled"
             >
             {/* Header */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 12 }}>
-              <Text style={{ color: '#ffd700', fontSize: 16, fontWeight: '800' }}>🛠️ Chat Preferences</Text>
-              <TouchableOpacity onPress={() => setShowChatMenuModal(false)}>
-                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>✕ Close</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(200,255,0,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0040' }}>
+                  <Text style={{ fontSize: 18 }}>⚙️</Text>
+                </View>
+                <Text style={{ color: '#c8ff00', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }}>Chat Preferences</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setShowChatMenuModal(false)}
+                style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#161622', borderWidth: 1, borderColor: '#27272a' }}
+              >
+                <Text style={{ color: '#8b8ba7', fontSize: 12, fontWeight: '800' }}>✕ Close</Text>
               </TouchableOpacity>
             </View>
 
             {/* ── Profile Picture / Avatar ── */}
             <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CONTACT AVATAR</Text>
-              <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>🖼️ Change Profile Picture / Emoji</Text>
+              <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>CONTACT AVATAR</Text>
+              <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>🖼️ Change Profile Picture / Emoji</Text>
               <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Pick an emoji or type a custom icon for this contact</Text>
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                 {['💑', '👻', '🐱', '💖', '🔥', '⚡', '🎭', '🦋', '🌙', '🎮'].map(em => (
                   <TouchableOpacity
                     key={em}
-                    style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: contact?.avatar === em ? 'rgba(200,255,0,0.15)' : '#161622', borderWidth: 1, borderColor: contact?.avatar === em ? '#c8ff00' : '#1e1e2c', justifyContent: 'center', alignItems: 'center' }}
+                    style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: contact?.avatar === em ? 'rgba(200,255,0,0.18)' : '#12121a', borderWidth: 1, borderColor: contact?.avatar === em ? '#c8ff00' : '#1e1e2c', justifyContent: 'center', alignItems: 'center' }}
                     onPress={() => { if (onChangeAvatar) onChangeAvatar(contact.id || contact.userId, em) }}
                   >
                     <Text style={{ fontSize: 20 }}>{em}</Text>
@@ -1792,7 +1853,7 @@ export default function ChatScreen({
                 ))}
               </View>
               <TextInput
-                style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
+                style={{ backgroundColor: '#12121a', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
                 placeholder="Or type any emoji / text…"
                 placeholderTextColor="#4b5563"
                 defaultValue={contact?.avatar || ''}
@@ -1801,37 +1862,37 @@ export default function ChatScreen({
             </View>
 
             {/* ── Lock Chat ── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔒 Lock Chat (Vault)</Text>
+                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '800' }}>🔒 Lock Chat (Vault)</Text>
                 <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Move to Secret Vault — PIN + Fingerprint protected</Text>
               </View>
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => { if (onLockToggle) onLockToggle(contact.id || contact.userId) }}
                 style={{
-                  width: 50, height: 28, borderRadius: 14,
+                  width: 52, height: 30, borderRadius: 15,
                   backgroundColor: isLocked ? '#c8ff00' : '#27272a',
                   padding: 3, justifyContent: 'center',
                   alignItems: isLocked ? 'flex-end' : 'flex-start',
                 }}
               >
-                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isLocked ? '#050608' : '#a1a1aa' }} />
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isLocked ? '#050608' : '#a1a1aa' }} />
               </TouchableOpacity>
             </View>
 
             {/* ── Disappearing Messages ── */}
             <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
+              <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>DISAPPEARING MESSAGES</Text>
               <Text style={{ color: '#8b8ba7', fontSize: 11 }}>Messages self-delete after the selected time</Text>
               <View style={{ flexDirection: 'row', gap: 6 }}>
                 {['off', '24h', '7d', '30d'].map((time) => (
                   <TouchableOpacity
                     key={time}
                     style={{
-                      flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1,
+                      flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1,
                       borderColor: disappearingMode === time ? '#c8ff00' : '#1e1e2c',
-                      backgroundColor: disappearingMode === time ? 'rgba(200,255,0,0.1)' : 'transparent',
+                      backgroundColor: disappearingMode === time ? 'rgba(200,255,0,0.12)' : '#12121a',
                       alignItems: 'center',
                     }}
                     onPress={() => {
@@ -1850,10 +1911,10 @@ export default function ChatScreen({
             {/* ── Add Member to Group ── (group chats only) */}
             {contact?.isGroup && (
               <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-                <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>GROUP MANAGEMENT</Text>
-                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>➕ Add Member to Group</Text>
+                <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>GROUP MANAGEMENT</Text>
+                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>➕ Add Member to Group</Text>
                 <TextInput
-                  style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
+                  style={{ backgroundColor: '#12121a', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
                   placeholder="Enter @username to add…"
                   placeholderTextColor="#4b5563"
                   onSubmitEditing={(e) => {
@@ -1867,27 +1928,26 @@ export default function ChatScreen({
               </View>
             )}
 
-
             {/* ── Contact Info Detail Display ── */}
             <View style={{ gap: 6, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>CONTACT DETAILS</Text>
+              <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>CONTACT DETAILS</Text>
               <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>👤 Name: {contact?.name || 'Unknown'}</Text>
               <Text style={{ color: '#8b8ba7', fontSize: 13 }}>📱 Number/Email: {contact?.phoneNumber || 'not_shared_or_private@void.chat'}</Text>
             </View>
 
             {/* ── Search Message ── */}
             <View style={{ paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2c', gap: 6 }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>SEARCH MESSAGES</Text>
+              <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>SEARCH MESSAGES</Text>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TextInput
-                  style={{ flex: 1, backgroundColor: '#161622', borderRadius: 10, paddingHorizontal: 12, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 13 }}
+                  style={{ flex: 1, backgroundColor: '#12121a', borderRadius: 12, paddingHorizontal: 14, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 13 }}
                   placeholder="Type to search in chat..."
                   placeholderTextColor="#4b5563"
                   value={searchMessageText}
                   onChangeText={setSearchMessageText}
                 />
                 <TouchableOpacity
-                  style={{ backgroundColor: '#c8ff00', paddingHorizontal: 12, borderRadius: 10, justifyContent: 'center' }}
+                  style={{ backgroundColor: '#c8ff00', paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}
                   onPress={() => {
                     if (searchMessageText.trim()) {
                       const matched = messages.filter(m => (m.text || m.originalText || '').toLowerCase().includes(searchMessageText.toLowerCase()))
@@ -1904,7 +1964,7 @@ export default function ChatScreen({
 
             {/* ── Media, Links & Docs ── */}
             <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}
               onPress={() => {
                 setShowChatMenuModal(false)
                 Alert.alert(
@@ -1919,7 +1979,7 @@ export default function ChatScreen({
             </TouchableOpacity>
 
             {/* ── Mute Notifications ── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🔔 Mute Notifications</Text>
                 <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 2 }}>Silence alerts from this contact</Text>
@@ -1931,19 +1991,19 @@ export default function ChatScreen({
                   Alert.alert(isChatMuted ? '🔔 Notifications Unmuted' : '🔕 Notifications Muted', `Alerts from @${contact?.name || 'User'} silenced.`)
                 }}
                 style={{
-                  width: 50, height: 28, borderRadius: 14,
+                  width: 52, height: 30, borderRadius: 15,
                   backgroundColor: isChatMuted ? '#c8ff00' : '#27272a',
                   padding: 3, justifyContent: 'center',
                   alignItems: isChatMuted ? 'flex-end' : 'flex-start',
                 }}
               >
-                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isChatMuted ? '#050608' : '#a1a1aa' }} />
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isChatMuted ? '#050608' : '#a1a1aa' }} />
               </TouchableOpacity>
             </View>
 
             {/* ── Chat Theme Selector ── */}
             <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-              <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>PERSONAL CHAT THEME</Text>
+              <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>PERSONAL CHAT THEME</Text>
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                 {[
                   { id: 'classic_dark', label: 'Dark', color: '#0f0f15' },
@@ -1954,12 +2014,12 @@ export default function ChatScreen({
                   <TouchableOpacity
                     key={th.id}
                     style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 10,
+                      paddingHorizontal: 14,
+                      paddingVertical: 9,
+                      borderRadius: 12,
                       borderWidth: 1,
                       borderColor: localChatTheme === th.id ? '#c8ff00' : '#1e1e2c',
-                      backgroundColor: th.color + '20',
+                      backgroundColor: th.color + '25',
                     }}
                     onPress={() => {
                       setLocalChatTheme(th.id)
@@ -1972,30 +2032,10 @@ export default function ChatScreen({
               </View>
             </View>
 
-            {/* ── Add Member to Group ── (group chats only) */}
-            {contact?.isGroup && (
-              <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
-                <Text style={{ color: '#a3e635', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>GROUP MANAGEMENT</Text>
-                <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '600' }}>➕ Add Member to Group</Text>
-                <TextInput
-                  style={{ backgroundColor: '#161622', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#f0f0ff', borderWidth: 1, borderColor: '#1e1e2c', fontSize: 14 }}
-                  placeholder="Enter @username to add…"
-                  placeholderTextColor="#4b5563"
-                  onSubmitEditing={(e) => {
-                    const text = e.nativeEvent.text.trim()
-                    if (onAddGroupMember && text) {
-                      onAddGroupMember(contact.id || contact.userId, text)
-                    }
-                  }}
-                  returnKeyType="send"
-                />
-              </View>
-            )}
-
             {/* ── Create Group ── (1-on-1 chats only) */}
             {!contact?.isGroup && (
               <TouchableOpacity
-                style={{ backgroundColor: 'rgba(200,255,0,0.07)', borderWidth: 1, borderColor: '#c8ff0028', paddingVertical: 14, borderRadius: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                style={{ backgroundColor: 'rgba(200,255,0,0.08)', borderWidth: 1, borderColor: '#c8ff0035', paddingVertical: 14, borderRadius: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
                 onPress={() => {
                   setShowChatMenuModal(false)
                   Alert.alert(
@@ -2016,11 +2056,11 @@ export default function ChatScreen({
             {/* ── Block / Unblock ── */}
             <TouchableOpacity
               style={{
-                backgroundColor: isBlocked ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                backgroundColor: isBlocked ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
                 borderWidth: 1,
-                borderColor: isBlocked ? '#10b98130' : '#ef444430',
+                borderColor: isBlocked ? '#10b98140' : '#ef444440',
                 paddingVertical: 14,
-                borderRadius: 14,
+                borderRadius: 16,
                 alignItems: 'center',
                 flexDirection: 'row',
                 justifyContent: 'center',
@@ -2042,11 +2082,11 @@ export default function ChatScreen({
             {/* ── Report User ── */}
             <TouchableOpacity
               style={{
-                backgroundColor: 'rgba(239,68,68,0.1)',
+                backgroundColor: 'rgba(239,68,68,0.12)',
                 borderWidth: 1,
-                borderColor: '#ef444430',
+                borderColor: '#ef444440',
                 paddingVertical: 14,
-                borderRadius: 14,
+                borderRadius: 16,
                 alignItems: 'center',
                 flexDirection: 'row',
                 justifyContent: 'center',
@@ -2081,18 +2121,18 @@ export default function ChatScreen({
         animationType="fade"
         onRequestClose={() => setPreviewImageUri(null)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', padding: 20, gap: 16 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(3, 3, 8, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#090a10', borderRadius: 28, borderWidth: 1, borderColor: '#c8ff0040', padding: 22, gap: 16, shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 12 }}>
             {/* Header */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: '#c8ff00', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }}>🖼️ Send Image</Text>
-              <TouchableOpacity onPress={() => setPreviewImageUri(null)} style={{ padding: 4 }}>
-                <Text style={{ color: '#8b8ba7', fontSize: 13, fontWeight: '700' }}>✕ Cancel</Text>
+              <TouchableOpacity onPress={() => setPreviewImageUri(null)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#161622' }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 12, fontWeight: '800' }}>✕ Cancel</Text>
               </TouchableOpacity>
             </View>
 
             {/* Image Preview Container */}
-            <View style={{ width: '100%', height: 280, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2d', backgroundColor: '#050508', justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ width: '100%', height: 280, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2d', backgroundColor: '#050508', justifyContent: 'center', alignItems: 'center' }}>
               {previewImageUri ? (
                 <Image source={{ uri: previewImageUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
               ) : null}
@@ -2123,9 +2163,9 @@ export default function ChatScreen({
                   alignItems: 'center',
                   shadowColor: '#c8ff00',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 10,
-                  elevation: 5
+                  shadowOpacity: 0.3,
+                  shadowRadius: 12,
+                  elevation: 6
                 }}
                 onPress={handleSendPreviewImage}
               >
@@ -2135,6 +2175,7 @@ export default function ChatScreen({
           </View>
         </View>
       </Modal>
+
       {/* ── Custom Premium Alert Modal ── */}
       <Modal
         visible={!!customAlert}
@@ -2143,7 +2184,7 @@ export default function ChatScreen({
         onRequestClose={() => setCustomAlert(null)}
       >
         <TouchableOpacity 
-          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.9)', justifyContent: 'center', alignItems: 'center', padding: 24 }}
+          style={{ flex: 1, backgroundColor: 'rgba(3, 3, 8, 0.92)', justifyContent: 'center', alignItems: 'center', padding: 24 }}
           activeOpacity={1}
           onPress={() => setCustomAlert(null)}
         >
@@ -2151,33 +2192,33 @@ export default function ChatScreen({
             activeOpacity={1}
             style={{
               width: '100%',
-              maxWidth: 320,
-              backgroundColor: '#0e0e14',
-              borderRadius: 24,
+              maxWidth: 330,
+              backgroundColor: '#090a10',
+              borderRadius: 28,
               borderWidth: 1,
-              borderColor: theme.primary || '#c8ff00',
+              borderColor: (theme.primary || '#c8ff00') + '40',
               padding: 24,
               alignItems: 'center',
               gap: 16,
               shadowColor: theme.primary || '#c8ff00',
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.15,
-              shadowRadius: 20,
-              elevation: 8
+              shadowOffset: { width: 0, height: 12 },
+              shadowOpacity: 0.25,
+              shadowRadius: 25,
+              elevation: 15
             }}
           >
             {/* Alert Accent Indicator */}
-            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: (theme.primary || '#c8ff00') + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: (theme.primary || '#c8ff00') + '25' }}>
-              <Text style={{ fontSize: 20 }}>🔔</Text>
+            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: (theme.primary || '#c8ff00') + '18', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: (theme.primary || '#c8ff00') + '40' }}>
+              <Text style={{ fontSize: 22 }}>⚡</Text>
             </View>
 
             {/* Content */}
             <View style={{ alignItems: 'center', gap: 6 }}>
-              <Text style={{ color: theme.text || '#f0f0ff', fontSize: 16, fontWeight: '900', textAlign: 'center', letterSpacing: 0.3 }}>
+              <Text style={{ color: theme.text || '#f0f0ff', fontSize: 17, fontWeight: '900', textAlign: 'center', letterSpacing: 0.3 }}>
                 {customAlert?.title}
               </Text>
               {customAlert?.message ? (
-                <Text style={{ color: theme.subText || '#8b8ba7', fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
+                <Text style={{ color: theme.subText || '#8b8ba7', fontSize: 13, textAlign: 'center', lineHeight: 19 }}>
                   {customAlert?.message}
                 </Text>
               ) : null}
@@ -2199,10 +2240,15 @@ export default function ChatScreen({
                         : (isCancel ? '#161622' : (theme.primary || '#c8ff00')),
                       borderWidth: isCancel ? 1 : 0,
                       borderColor: '#1e1e2c',
-                      paddingVertical: 12,
-                      borderRadius: 14,
+                      paddingVertical: 13,
+                      borderRadius: 16,
                       alignItems: 'center',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      shadowColor: !isCancel && !isDestructive ? (theme.primary || '#c8ff00') : 'transparent',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 10,
+                      elevation: 5
                     }}
                     onPress={() => {
                       setCustomAlert(null)
@@ -2213,8 +2259,9 @@ export default function ChatScreen({
                       color: isDestructive 
                         ? '#ffffff' 
                         : (isCancel ? '#8b8ba7' : '#050608'),
-                      fontSize: 13,
-                      fontWeight: '800'
+                      fontSize: 14,
+                      fontWeight: '900',
+                      letterSpacing: 0.3
                     }}>
                       {btn.text}
                     </Text>

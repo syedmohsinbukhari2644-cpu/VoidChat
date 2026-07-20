@@ -112,21 +112,42 @@ router.post('/send', protect, async (req, res) => {
     }
 
     // Streak VOID bonus do
-    const streakVOID = Math.floor(50 * streak.bonusMultiplier)
+    const sender = await User.findById(req.user._id)
+    const baseStreakVOID = Math.floor(50 * streak.bonusMultiplier)
+    const streakVOID = sender.isPremium ? (baseStreakVOID * 2) : baseStreakVOID
+
     await User.findByIdAndUpdate(req.user._id, {
       $inc: { voidBalance: streakVOID }
     })
 
-    await VOID.create({
-      user: req.user._id,
-      amount: streakVOID,
-      type: 'streak',
-      description: `Streak ${streak.currentStreak} din! +${streakVOID} VOID`
-    })
+    // Emit socket event if receiver is online
+    const io = req.app.get('io')
+    const onlineUsers = req.app.get('onlineUsers')
+    if (io && onlineUsers) {
+      const targetSocketId = onlineUsers.get(receiverId.toString())
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('receive-message', {
+          _id: message._id,
+          sender: req.user._id,
+          receiver: receiverId,
+          content: content,
+          createdAt: message.createdAt
+        })
+      }
+    }
 
     res.status(201).json({
       success: true,
-      message: `🔐 Message send! +${streakVOID} VOID mile!`,
+      messageData: {
+        _id: message._id,
+        sender: req.user._id,
+        receiver: receiverId,
+        content: content,
+        createdAt: message.createdAt
+      },
+      message: sender.isPremium 
+        ? `🔐 Message send! +${streakVOID} VOID (Premium Double Booster!) mile!` 
+        : `🔐 Message send! +${streakVOID} VOID mile!`,
       streak: streak.currentStreak,
       VOIDEarned: streakVOID
     })
