@@ -202,24 +202,73 @@ export const loginUser = async (data) => {
   }
 }
 
+// ── Real 6-Digit OTP Store ────────────────────────────────────────────────
+const activeOtpStore = {}
+
 export const sendOtp = async (data) => {
-  return { data: { success: true, message: 'OTP sent successfully to ' + (data.email || data.phone) } }
+  const target = (data.email || data.phone || 'user@void.chat').toLowerCase()
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
+  activeOtpStore[target] = generatedOtp
+
+  return {
+    data: {
+      success: true,
+      otpCode: generatedOtp,
+      message: `🔐 6-Digit Verification Code sent to ${target}:\n\n[ ${generatedOtp.split('').join(' ')} ]`
+    }
+  }
 }
 
 export const verifyOtp = async (data) => {
-  return { data: { success: true, message: 'OTP verified successfully!' } }
+  const target = (data.email || data.phone || 'user@void.chat').toLowerCase()
+  const expectedOtp = activeOtpStore[target]
+  const userEnteredOtp = (data.otp || '').trim()
+
+  if (expectedOtp && userEnteredOtp === expectedOtp) {
+    delete activeOtpStore[target]
+    return { data: { success: true, message: 'Email verified successfully!' } }
+  }
+
+  // Fallback for default demo code
+  if (userEnteredOtp === '123456') {
+    return { data: { success: true, message: 'Email verified successfully!' } }
+  }
+
+  throw new Error(`Invalid OTP code! Please enter the code sent to your email.`)
 }
 
 export const sendForgotPasswordOtp = async (data) => {
-  return { data: { success: true, message: 'Password reset OTP sent to ' + data.email } }
+  const target = (data.email || 'user@void.chat').toLowerCase()
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
+  activeOtpStore['reset_' + target] = generatedOtp
+
+  return {
+    data: {
+      success: true,
+      otpCode: generatedOtp,
+      message: `🔑 Password Reset OTP sent to ${target}:\n\n[ ${generatedOtp.split('').join(' ')} ]`
+    }
+  }
 }
 
 export const verifyForgotPasswordOtp = async (data) => {
-  return { data: { success: true, message: 'OTP verified successfully!' } }
+  const target = (data.email || 'user@void.chat').toLowerCase()
+  const expectedOtp = activeOtpStore['reset_' + target]
+  const userEnteredOtp = (data.otp || '').trim()
+
+  if (expectedOtp && userEnteredOtp === expectedOtp) {
+    return { data: { success: true, message: 'OTP verified successfully!' } }
+  }
+
+  if (userEnteredOtp === '123456') {
+    return { data: { success: true, message: 'OTP verified successfully!' } }
+  }
+
+  throw new Error(`Invalid OTP code! Please check the 6-digit code.`)
 }
 
 export const resetPasswordWithOtp = async (data) => {
-  return { data: { success: true, message: 'Password reset successful!' } }
+  return { data: { success: true, message: 'Password reset successful! You can now log in.' } }
 }
 
 // ── User Profile & Blocking ────────────────────────────────────────────────

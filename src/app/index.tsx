@@ -1370,13 +1370,44 @@ export default function App() {
 
   const renderHeader = (showMoreOptions = true) => (
     <View style={[styles.header, { backgroundColor: theme.bg }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Text style={[styles.logo, isPremiumUser && { color: appIconPreset === 'gold' ? '#ffd700' : (appIconPreset === 'holo' ? '#00ffff' : (appIconPreset === 'cyber' ? '#ec4899' : '#ffd700')) }]}>
           {isPremiumUser ? (appIconPreset === 'gold' ? 'VOID GOLD' : (appIconPreset === 'holo' ? 'VOID HOLO' : (appIconPreset === 'cyber' ? 'VOID CYBER' : 'VOID'))) : 'VOID'}
         </Text>
-        {isPremiumUser && (
-          <Text style={{ fontSize: 13 }}>👑</Text>
-        )}
+
+        {/* ── Mode Switcher Button (Social User ↔ Secret Chat User) ── */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            const nextMode = appMode === 'social' ? 'chat' : 'social'
+            setAppMode(nextMode)
+            if (nextMode === 'chat') {
+              setActiveTab('inbox')
+            } else {
+              setActiveTab('feed')
+            }
+            Alert.alert(
+              'Profile Mode Switched ⚡',
+              `Switched to: ${nextMode === 'chat' ? '💬 Secret Chat User' : '🌐 Social User'} Mode`
+            )
+          }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            backgroundColor: appMode === 'chat' ? '#161622' : '#0a1600',
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: appMode === 'chat' ? '#3b82f650' : '#c8ff0050',
+          }}
+        >
+          <Text style={{ fontSize: 11 }}>{appMode === 'chat' ? '💬' : '🌐'}</Text>
+          <Text style={{ color: appMode === 'chat' ? '#60a5fa' : '#c8ff00', fontSize: 11, fontWeight: '800' }}>
+            {appMode === 'chat' ? 'Chat User' : 'Social User'}
+          </Text>
+        </TouchableOpacity>
       </View>
       <View style={styles.headerRight}>
         <TouchableOpacity onPress={() => setShowWallet(true)} activeOpacity={0.85}>

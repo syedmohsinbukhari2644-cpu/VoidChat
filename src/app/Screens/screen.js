@@ -706,57 +706,21 @@ export default function ChatScreen({
     }
   }
 
-  const sendPhoto = () => {
-    Alert.alert('📷 Camera', 'Take a photo with filter?', [
-      { text: 'Cancel', onPress: () => setShowFilterMenu(false) },
-      { 
-        text: 'Select Filter', 
-        onPress: () => setShowFilterMenu(true)
-      },
-      { 
-        text: 'Take Photo Now', 
-        onPress: () => {
-          const filterLabel = cameraFilters.find(f => f.name === selectedFilter)?.label
-          Alert.alert(
-            '💾 Save Options',
-            'What do you want to do?',
-            [
-              {
-                text: '❌ Cancel',
-                onPress: () => {}
-              },
-              {
-                text: '📱 Gallery',
-                onPress: () => savePhotoToGallery(selectedFilter)
-              },
-              {
-                text: '💾 Draft',
-                onPress: () => savePhotoToDraft(selectedFilter)
-              },
-              {
-                text: '✈️ Send Now',
-                onPress: () => {
-                  sendMediaMessage('image', `📷 Photo sent ${selectedFilter !== 'normal' ? `(${filterLabel} filter)` : ''}`)
-                  setShowFilterMenu(false)
-                }
-              }
-            ]
-          )
-        }
-      }
-    ])
+  const handleSendPreviewImage = async () => {
+    if (!previewImageUri) return
+    const uri = previewImageUri
+    setPreviewImageUri(null)
+    await sendMediaMessage('image', `🖼️ Media Attached: ${uri}`)
   }
 
-  const sendFromGallery = () => {
-    Alert.alert('🖼️ Gallery', 'Pick an image from your gallery', [
-      { text: 'Cancel', onPress: () => {} },
-      { 
-        text: 'Select Image', 
-        onPress: () => {
-          sendMediaMessage('image', '🖼️ Gallery Image shared')
-        }
-      }
-    ])
+  const sendPhoto = async () => {
+    setShowMediaMenu(false)
+    await openRealCamera()
+  }
+
+  const sendFromGallery = async () => {
+    setShowMediaMenu(false)
+    await openRealGallery()
   }
 
   const shareContact = async () => {
