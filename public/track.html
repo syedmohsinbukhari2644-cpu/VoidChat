@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VOID Ghost Mode — Device Tracker</title>
+  <meta name="description" content="VOID CHAT Anti-Theft Dashboard — Track your device location and unlock remotely." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #060608;
+      --card: #0e0e14;
+      --border: #1e1e2c;
+      --primary: #c8ff00;
+      --red: #ef4444;
+      --text: #f0f0ff;
+      --sub: #8b8ba7;
+      --danger: #ff4444;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 28px;
+      background: rgba(14,14,20,0.95);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 999;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon {
+      width: 36px; height: 36px; background: var(--primary);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo-text { font-size: 16px; font-weight: 800; }
+    .logo-text span { color: var(--primary); }
+    .header-status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--sub);
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--sub); animation: pulse 2s infinite;
+    }
+    .status-dot.active { background: var(--primary); }
+    .status-dot.alarming { background: var(--danger); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+
+    /* ── Login Screen ── */
+    #login-screen {
+      min-height: 100vh; display: flex; align-items: center;
+      justify-content: center; padding: 24px;
+    }
+    .login-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 24px; padding: 40px; max-width: 420px; width: 100%;
+    }
+    .login-card h1 {
+      font-size: 26px; font-weight: 900; margin-bottom: 6px;
+    }
+    .login-card h1 span { color: var(--primary); }
+    .login-card p { color: var(--sub); font-size: 13px; margin-bottom: 28px; }
+    .input-group { margin-bottom: 16px; }
+    .input-group label { display: block; font-size: 12px; font-weight: 700; color: var(--sub); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .input-group input {
+      width: 100%; background: #111118; border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px; color: var(--text);
+      font-family: 'Inter', sans-serif; font-size: 14px; outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-group input:focus { border-color: var(--primary); }
+    .btn-login {
+      width: 100%; padding: 16px; background: var(--primary); border: none;
+      border-radius: 12px; color: #000; font-weight: 800; font-size: 15px;
+      cursor: pointer; transition: opacity 0.2s; margin-top: 8px;
+    }
+    .btn-login:hover { opacity: 0.9; }
+    .login-error { color: var(--red); font-size: 13px; text-align: center; margin-top: 12px; display: none; }
+
+    /* ── Dashboard ── */
+    #dashboard { display: none; }
+    .dash-grid {
+      display: grid; grid-template-columns: 380px 1fr;
+      height: calc(100vh - 62px);
+    }
+    @media (max-width: 768px) {
+      .dash-grid { grid-template-columns: 1fr; height: auto; }
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: var(--card); border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 20px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .sidebar h2 { font-size: 14px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .device-card {
+      background: #111118; border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px;
+    }
+    .device-name { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .device-status { font-size: 12px; color: var(--sub); }
+    .device-status.active { color: var(--primary); }
+
+    .location-card {
+      background: #111118; border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px; gap: 10px; display: flex; flex-direction: column;
+    }
+    .coord-row { display: flex; justify-content: space-between; align-items: center; }
+    .coord-label { font-size: 11px; color: var(--sub); text-transform: uppercase; font-weight: 700; }
+    .coord-value { font-size: 13px; font-weight: 600; font-feature-settings: 'tnum'; }
+    .last-seen { font-size: 11px; color: var(--sub); margin-top: 4px; }
+
+    /* ── Intruder Selfie Gallery ── */
+    .selfie-gallery { display: flex; flex-wrap: wrap; gap: 8px; }
+    .selfie-thumb {
+      width: 80px; height: 80px; border-radius: 10px;
+      object-fit: cover; cursor: pointer;
+      border: 2px solid var(--border); transition: border-color 0.2s;
+    }
+    .selfie-thumb:hover { border-color: var(--primary); }
+    .selfie-empty { color: var(--sub); font-size: 12px; font-style: italic; }
+    .selfie-label { font-size: 10px; color: var(--sub); text-align: center; margin-top: 2px; }
+    .selfie-item { display: flex; flex-direction: column; align-items: center; }
+
+    /* ── Action Buttons ── */
+    .actions { display: flex; flex-direction: column; gap: 10px; }
+    .btn-action {
+      padding: 14px 20px; border-radius: 12px; border: none;
+      font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px;
+      cursor: pointer; display: flex; align-items: center; gap: 10px;
+      transition: all 0.2s; width: 100%;
+    }
+    .btn-unlock {
+      background: var(--primary); color: #000;
+    }
+    .btn-unlock:hover { background: #b5e600; }
+    .btn-alarm {
+      background: transparent; color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+    .btn-alarm:hover { background: rgba(239,68,68,0.1); }
+    .btn-alarm.active {
+      background: var(--danger); color: #fff;
+      animation: alarm-pulse 1s infinite;
+    }
+    @keyframes alarm-pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.7; }
+    }
+    .btn-refresh {
+      background: transparent; color: var(--sub);
+      border: 1px solid var(--border);
+    }
+    .btn-refresh:hover { border-color: var(--sub); }
+
+    .action-result {
+      padding: 12px; background: #111118; border-radius: 10px;
+      border: 1px solid var(--border); font-size: 12px; color: var(--sub);
+      text-align: center; display: none;
+    }
+    .action-result.success { color: var(--primary); border-color: rgba(200,255,0,0.3); }
+    .action-result.error   { color: var(--red); border-color: rgba(239,68,68,0.3); }
+
+    /* ── Route History ── */
+    .route-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .route-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: #0a0a10; border-radius: 8px;
+      font-size: 11px; color: var(--sub);
+    }
+    .route-item .route-coords { color: var(--text); font-weight: 600; }
+
+    /* ── Map ── */
+    #map {
+      height: 100%; min-height: 400px; background: #111;
+    }
+    @media (max-width: 768px) {
+      #map { height: 50vh; }
+    }
+
+    /* ── Notification Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--card); border: 1px solid var(--primary);
+      border-radius: 14px; padding: 14px 20px;
+      color: var(--primary); font-weight: 700; font-size: 14px;
+      display: none; z-index: 9999; animation: slide-up 0.3s ease;
+    }
+    @keyframes slide-up {
+      from { transform: translateY(20px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">👻</div>
+    <div class="logo-text"><span>VOID</span> Ghost Mode</div>
+  </div>
+  <div class="header-status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Not tracking</span>
+  </div>
+</header>
+
+<!-- ── Login Screen ────────────────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>🔐 <span>Ghost</span> Dashboard</h1>
+    <p>Login with your VOID account credentials to access the anti-theft tracker and remote unlock.</p>
+
+    <div class="input-group">
+      <label>User ID</label>
+      <input type="text" id="login-userid" placeholder="Your VOID User ID" />
+    </div>
+    <div class="input-group">
+      <label>PIN Hash (your Ghost PIN)</label>
+      <input type="password" id="login-pin" placeholder="Enter your Ghost PIN" />
+    </div>
+
+    <button class="btn-login" onclick="doLogin()">🔓 Access Dashboard</button>
+    <div class="login-error" id="login-error">Invalid credentials. Check User ID and PIN.</div>
+  </div>
+</div>
+
+<!-- ── Dashboard ──────────────────────────────────────────────────────── -->
+<div id="dashboard">
+  <div class="dash-grid">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <h2>📱 Device Status</h2>
+      <div class="device-card">
+        <div class="device-name">My Phone</div>
+        <div class="device-status" id="ghost-status">Checking...</div>
+      </div>
+
+      <h2>📍 Last Location</h2>
+      <div class="location-card">
+        <div class="coord-row">
+          <span class="coord-label">Latitude</span>
+          <span class="coord-value" id="coord-lat">—</span>
+        </div>
+        <div class="coord-row">
+          <span class="coord-label">Longitude</span>
+          <span class="coord-value" id="coord-lng">—</span>
+        </div>
+        <div class="coord-row">
+          <span class="coord-label">Accuracy</span>
+          <span class="coord-value" id="coord-acc">—</span>
+        </div>
+        <div class="last-seen" id="coord-ts">Never updated</div>
+        <a id="maps-link" href="#" target="_blank" style="color:var(--primary);font-size:12px;font-weight:700;display:none;">
+          🗺️ Open in Google Maps →
+        </a>
+      </div>
+
+      <h2>⚡ Remote Actions</h2>
+      <div class="actions">
+        <button class="btn-action btn-unlock" id="btn-unlock" onclick="sendUnlock()">
+          🔓 Unlock Device Remotely
+        </button>
+        <button class="btn-action btn-alarm" id="btn-alarm" onclick="toggleAlarm()">
+          🔊 Sound Alarm on Device
+        </button>
+        <button class="btn-action btn-refresh" onclick="refreshData()">
+          🔄 Refresh Location
+        </button>
+      </div>
+
+      <div class="action-result" id="action-result"></div>
+
+      <h2>🗺️ Route History</h2>
+      <div class="route-list" id="route-list">
+        <div class="route-item"><span style="color:var(--sub)">No route data yet</span></div>
+      </div>
+
+      <h2>📸 Intruder Selfies</h2>
+      <div class="selfie-gallery" id="selfie-gallery">
+        <span class="selfie-empty">No captures yet</span>
+      </div>
+
+      <button class="btn-action btn-refresh" onclick="doLogout()" style="margin-top:auto;">
+        🚪 Logout
+      </button>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── Firebase Config ────────────────────────────────────────────────────────
+  const FIRESTORE = 'https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents'
+  const ANTITHEFT = `${FIRESTORE}/antitheft`
+
+  let currentUserId   = null
+  let currentPinHash  = null
+  let map             = null
+  let marker          = null
+  let routePolyline   = null
+  let alarmOn         = false
+  let refreshTimer    = null
+  let selfieModalOpen = false
+  let routePolyline   = null
+  let alarmOn         = false
+  let refreshTimer    = null
+
+  // ── Simple PIN hash (mirrors AntiTheftService.js hashPin) ─────────────────
+  function hashPin(pin) {
+    let hash = 0
+    for (let i = 0; i < pin.length; i++) {
+      const chr = pin.charCodeAt(i)
+      hash = ((hash << 5) - hash) + chr
+      hash |= 0
+    }
+    return String(Math.abs(hash))
+  }
+
+  // ── Firestore helpers ──────────────────────────────────────────────────────
+  async function fsGet(path) {
+    const r = await fetch(`${ANTITHEFT}/${path}`)
+    if (!r.ok) return null
+    return r.json()
+  }
+
+  async function fsPatch(path, fields) {
+    await fetch(`${ANTITHEFT}/${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    })
+  }
+
+  // ── Login ──────────────────────────────────────────────────────────────────
+  async function doLogin() {
+    const uid = document.getElementById('login-userid').value.trim()
+    const pin = document.getElementById('login-pin').value.trim()
+
+    if (!uid || !pin) {
+      showLoginError('Please enter User ID and PIN.')
+      return
+    }
+
+    currentUserId  = uid
+    currentPinHash = hashPin(pin)
+
+    // Verify by checking if Firestore doc exists for this user
+    try {
+      const doc = await fsGet(`${uid}/settings/config`)
+      // If doc doesn't exist or is wrong user, we still proceed
+      // (ghost mode might not have been activated yet)
+      sessionStorage.setItem('ghost_uid', uid)
+      sessionStorage.setItem('ghost_pin', currentPinHash)
+      showDashboard()
+    } catch (e) {
+      showLoginError('Could not connect. Check User ID.')
+    }
+  }
+
+  function showLoginError(msg) {
+    const el = document.getElementById('login-error')
+    el.textContent = msg
+    el.style.display = 'block'
+  }
+
+  function showDashboard() {
+    document.getElementById('login-screen').style.display = 'none'
+    document.getElementById('dashboard').style.display = 'block'
+    initMap()
+    refreshData()
+    // Auto-refresh every 30 seconds
+    refreshTimer = setInterval(refreshData, 30000)
+  }
+
+  function doLogout() {
+    sessionStorage.clear()
+    currentUserId = null
+    currentPinHash = null
+    clearInterval(refreshTimer)
+    document.getElementById('login-screen').style.display = 'flex'
+    document.getElementById('dashboard').style.display = 'none'
+  }
+
+  // ── Init Map ──────────────────────────────────────────────────────────────
+  function initMap() {
+    map = L.map('map', { zoomControl: true }).setView([30.3753, 69.3451], 6)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      className: 'map-tiles'
+    }).addTo(map)
+  }
+
+  // ── Refresh Data ──────────────────────────────────────────────────────────
+  async function refreshData() {
+    if (!currentUserId) return
+    try {
+      await Promise.all([fetchLocation(), fetchStatus(), fetchRouteHistory(), fetchIntruderSelfies()])
+    } catch (e) {}
+  }
+
+  async function fetchLocation() {
+    const doc = await fsGet(`${currentUserId}/location/current`)
+    if (!doc || !doc.fields) return
+
+    const f   = doc.fields
+    const lat = f.lat?.doubleValue || f.lat?.integerValue
+    const lng = f.lng?.doubleValue || f.lng?.integerValue
+    const acc = f.accuracy?.doubleValue
+    const ts  = f.timestamp?.stringValue
+
+    if (!lat || !lng) return
+
+    document.getElementById('coord-lat').textContent = Number(lat).toFixed(6)
+    document.getElementById('coord-lng').textContent = Number(lng).toFixed(6)
+    document.getElementById('coord-acc').textContent = acc ? `±${Math.round(acc)}m` : '—'
+
+    if (ts) {
+      const d = new Date(ts)
+      document.getElementById('coord-ts').textContent = `Last updated: ${d.toLocaleString()}`
+    }
+
+    const mapsLink = document.getElementById('maps-link')
+    mapsLink.href  = `https://maps.google.com/?q=${lat},${lng}`
+    mapsLink.style.display = 'block'
+
+    // Update map marker
+    if (!marker) {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:18px;height:18px;background:#c8ff00;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 4px rgba(200,255,0,0.3)"></div>`,
+        iconSize: [18, 18], iconAnchor: [9, 9]
+      })
+      marker = L.marker([lat, lng], { icon }).addTo(map)
+      marker.bindPopup('📍 Your Device').openPopup()
+    } else {
+      marker.setLatLng([lat, lng])
+    }
+    map.setView([lat, lng], 15)
+  }
+
+  async function fetchStatus() {
+    const doc = await fsGet(`${currentUserId}/settings/config`)
+    const statusEl  = document.getElementById('ghost-status')
+    const dot       = document.getElementById('status-dot')
+    const statusTxt = document.getElementById('status-text')
+
+    if (doc && doc.fields && doc.fields.ghostModeActive?.booleanValue) {
+      statusEl.textContent  = '🟢 Ghost Mode ACTIVE — Tracking'
+      statusEl.className    = 'device-status active'
+      dot.className         = 'status-dot active'
+      statusTxt.textContent = 'Ghost Mode Active'
+    } else {
+      statusEl.textContent  = '⚫ Ghost Mode Inactive'
+      statusEl.className    = 'device-status'
+      dot.className         = 'status-dot'
+      statusTxt.textContent = 'Not tracking'
+    }
+  }
+
+  async function fetchRouteHistory() {
+    try {
+      const res = await fetch(`${ANTITHEFT}/${currentUserId}/route?pageSize=10&orderBy=timestamp desc`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (!data.documents) return
+
+      const routeList = document.getElementById('route-list')
+      routeList.innerHTML = ''
+
+      const latlngs = []
+      data.documents.forEach(doc => {
+        const f   = doc.fields
+        const lat = f.lat?.doubleValue
+        const lng = f.lng?.doubleValue
+        const ts  = f.timestamp?.stringValue
+
+        if (!lat || !lng) return
+        latlngs.push([lat, lng])
+
+        const d    = ts ? new Date(ts) : null
+        const item = document.createElement('div')
+        item.className = 'route-item'
+        item.innerHTML = `
+          <span class="route-coords">${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}</span>
+          <span>${d ? d.toLocaleTimeString() : ''}</span>
+        `
+        routeList.appendChild(item)
+      })
+
+      // Draw polyline on map
+      if (map && latlngs.length > 1) {
+        if (routePolyline) map.removeLayer(routePolyline)
+        routePolyline = L.polyline(latlngs, { color: '#c8ff00', weight: 3, opacity: 0.7, dashArray: '6,6' }).addTo(map)
+      }
+    } catch (e) {}
+  }
+
+  // ── Intruder Selfies ──────────────────────────────────────────────────────
+  async function fetchIntruderSelfies() {
+    try {
+      const res = await fetch(`${ANTITHEFT}/${currentUserId}/intruders?pageSize=12`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (!data.documents) return
+
+      const gallery = document.getElementById('selfie-gallery')
+      gallery.innerHTML = ''
+
+      if (data.documents.length === 0) {
+        gallery.innerHTML = '<span class="selfie-empty">No captures yet</span>'
+        return
+      }
+
+      data.documents.forEach(doc => {
+        const f        = doc.fields
+        const photo    = f.photoB64?.stringValue
+        const reason   = f.reason?.stringValue || 'capture'
+        const ts       = f.timestamp?.stringValue
+        const d        = ts ? new Date(ts) : null
+        const label    = reason === 'wrong_pin' ? '❌ Wrong PIN'
+                       : reason === 'ghost_mode_activated' ? '🚨 Activated'
+                       : '📸 Periodic'
+
+        if (!photo || photo === 'mobile_capture_pending') return
+
+        const item       = document.createElement('div')
+        item.className   = 'selfie-item'
+
+        const img        = document.createElement('img')
+        img.className    = 'selfie-thumb'
+        img.src          = `data:image/jpeg;base64,${photo}`
+        img.title        = `${label} — ${d ? d.toLocaleString() : ''}`
+        img.onclick      = () => {
+          const w = window.open()
+          w.document.write(`<img src="data:image/jpeg;base64,${photo}" style="max-width:100%;max-height:100vh;display:block;margin:auto;background:#000">`)
+        }
+
+        const lbl        = document.createElement('div')
+        lbl.className    = 'selfie-label'
+        lbl.textContent  = label
+
+        item.appendChild(img)
+        item.appendChild(lbl)
+        gallery.appendChild(item)
+      })
+    } catch (e) {}
+  }
+
+  // ── Remote Unlock ─────────────────────────────────────────────────────────
+  async function sendUnlock() {
+    if (!currentUserId || !currentPinHash) return
+    showActionResult('⏳ Sending unlock command...', '')
+    try {
+      const hour  = Math.floor(Date.now() / (1000 * 60 * 60))
+      const token = hashPin(`${currentUserId}_${currentPinHash}_${hour}`)
+
+      await fsPatch(`${currentUserId}/commands/latest`, {
+        action:    { stringValue: 'unlock' },
+        token:     { stringValue: token },
+        timestamp: { stringValue: new Date().toISOString() },
+        processed: { booleanValue: false }
+      })
+
+      showActionResult('✅ Unlock command sent! Device will unlock within 10 seconds.', 'success')
+      showToast('🔓 Unlock command sent!')
+    } catch (e) {
+      showActionResult('❌ Failed to send unlock command. Check connection.', 'error')
+    }
+  }
+
+  // ── Remote Alarm ──────────────────────────────────────────────────────────
+  async function toggleAlarm() {
+    if (!currentUserId) return
+    alarmOn = !alarmOn
+    const btn = document.getElementById('btn-alarm')
+
+    try {
+      await fsPatch(`${currentUserId}/commands/alarm`, {
+        triggered:  { booleanValue: alarmOn },
+        timestamp:  { stringValue: new Date().toISOString() },
+        processed:  { booleanValue: false }
+      })
+
+      if (alarmOn) {
+        btn.textContent = '🔇 Stop Alarm'
+        btn.classList.add('active')
+        showActionResult('🔊 Alarm activated on device!', 'success')
+        showToast('🔊 Alarm triggered!')
+      } else {
+        btn.innerHTML = '🔊 Sound Alarm on Device'
+        btn.classList.remove('active')
+        showActionResult('🔇 Alarm stopped.', 'success')
+      }
+    } catch (e) {
+      showActionResult('❌ Alarm command failed.', 'error')
+    }
+  }
+
+  // ── UI Helpers ────────────────────────────────────────────────────────────
+  function showActionResult(msg, type) {
+    const el = document.getElementById('action-result')
+    el.textContent  = msg
+    el.className    = `action-result ${type}`
+    el.style.display = 'block'
+    setTimeout(() => el.style.display = 'none', 5000)
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast')
+    t.textContent   = msg
+    t.style.display = 'block'
+    setTimeout(() => t.style.display = 'none', 3000)
+  }
+
+  // ── Auto-restore session ──────────────────────────────────────────────────
+  window.addEventListener('load', () => {
+    const uid = sessionStorage.getItem('ghost_uid')
+    const pin = sessionStorage.getItem('ghost_pin')
+    if (uid && pin) {
+      currentUserId  = uid
+      currentPinHash = pin
+      showDashboard()
+    }
+  })
+
+  // ── Enter key on login ────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      if (document.getElementById('login-screen').style.display !== 'none') {
+        doLogin()
+      }
+    }
+  })
+</script>
+
+</body>
+</html>

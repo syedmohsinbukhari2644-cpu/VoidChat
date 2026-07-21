@@ -34,6 +34,10 @@ IF EXIST "d:\VOID CHAT\VoidChat\dist\voidchat.apk" (
 
 echo.
 echo [3/3] Deploying to Firebase Hosting (project: azaad-app)...
+
+echo Copying Ghost Mode dashboard to dist...
+copy /Y "d:\VOID CHAT\VoidChat\public\track.html" "d:\VOID CHAT\VoidChat\dist\track.html"
+
 call npx firebase deploy --only hosting --project azaad-app
 
 IF %ERRORLEVEL% NEQ 0 (

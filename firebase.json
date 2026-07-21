@@ -19,6 +19,10 @@
     ],
     "rewrites": [
       {
+        "source": "/track.html",
+        "destination": "/track.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

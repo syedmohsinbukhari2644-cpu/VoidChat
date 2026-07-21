@@ -17,6 +17,7 @@ const MapView = () => null;
 const Marker = () => null;
 import * as DocumentPicker from 'expo-document-picker'
 import * as Contacts from 'expo-contacts'
+import { sendMessage as sendApiMessage, getMessages, deleteMessage } from '../api'
 
 const webrtcService = Platform.OS === 'web' ? new Proxy({}, {
   get: (target, prop) => {
@@ -71,6 +72,7 @@ export default function ChatScreen({
   isLocked,
   onAddGroupMember,
   isDayMode = false,
+  activeChats = [],
 }) {
   const theme = {
     bg: isDayMode ? '#f4f4f5' : '#060608',
@@ -435,6 +437,62 @@ export default function ChatScreen({
     }
   }
 
+  const handleForwardMessage = (msg) => {
+    const targetUserId = contact?._id || contact?.id || contact?.userId
+    const otherChats = activeChats.filter(c => String(c.id) !== String(targetUserId))
+    
+    if (otherChats.length === 0) {
+      Alert.alert('Forward Message', 'You have no other active chats to forward this message to.')
+      return
+    }
+
+    const options = otherChats.map(c => ({
+      text: `Forward to ${c.name}`,
+      onPress: async () => {
+        try {
+          await sendApiMessage({
+            receiverId: c.id,
+            content: `[FORWARDED] ${msg.text || msg.content}`
+          })
+          Alert.alert('Success', `Message forwarded to ${c.name}!`)
+        } catch (e) {
+          Alert.alert('Error', 'Failed to forward message.')
+        }
+      }
+    }))
+    
+    options.push({ text: 'Cancel', style: 'cancel' })
+
+    Alert.alert(
+      'Forward Message',
+      'Select a chat to forward this message to:',
+      options
+    )
+  }
+
+  const handleDeleteMessage = (msgId) => {
+    Alert.alert(
+      'Delete Message',
+      'Are you sure you want to delete this message? This action will remove it for both you and the receiver.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setMessages(prev => prev.filter(m => m.id !== msgId))
+            try {
+              const targetUserId = contact?._id || contact?.id || contact?.userId
+              await deleteMessage(targetUserId, msgId)
+            } catch (e) {
+              console.log('Error deleting message:', e)
+            }
+          }
+        }
+      ]
+    )
+  }
+
   const handleMsgLongPress = (msg) => {
     Alert.alert(
       'Message Options',
@@ -443,6 +501,15 @@ export default function ChatScreen({
         {
           text: msg.isStarred ? '⭐ Unstar Message' : '⭐ Star Message',
           onPress: () => toggleStarMessage(msg.id)
+        },
+        {
+          text: '↪️ Forward Message',
+          onPress: () => handleForwardMessage(msg)
+        },
+        {
+          text: '🗑️ Delete Message',
+          style: 'destructive',
+          onPress: () => handleDeleteMessage(msg.id)
         },
         { text: 'Cancel', style: 'cancel' }
       ]

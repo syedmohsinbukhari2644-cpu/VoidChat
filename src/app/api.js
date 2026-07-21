@@ -96,7 +96,9 @@ const DEFAULT_REELS = [
 const getStoredData = async (key, defaultValue) => {
   try {
     const raw = await AsyncStorage.getItem(key)
-    return raw ? JSON.parse(raw) : defaultValue
+    if (!raw || raw === 'null' || raw === 'undefined') return defaultValue
+    const parsed = JSON.parse(raw)
+    return parsed !== null && parsed !== undefined ? parsed : defaultValue
   } catch (e) {
     return defaultValue
   }
@@ -140,6 +142,11 @@ const FIRESTORE_POSTS_URL = `${FIRESTORE_BASE_URL}/posts`
 const FIRESTORE_REELS_URL = `${FIRESTORE_BASE_URL}/reels`
 const FIRESTORE_GROUPS_URL = `${FIRESTORE_BASE_URL}/groups`
 
+// Helper to generate updateMask parameter string for Firestore REST PATCH
+const getUpdateMaskParams = (fields) => {
+  return Object.keys(fields).map(key => `updateMask.fieldPaths=${encodeURIComponent(key)}`).join('&')
+}
+
 // ── Auth APIs ─────────────────────────────────────────────────────────────
 export const registerUser = async (data) => {
   const allUsersRes = await getUsers()
@@ -175,23 +182,22 @@ export const registerUser = async (data) => {
 
   // Push to Cloud Firestore document URL so other users across devices find this new user instantly
   try {
-    const firestoreUrl = `${FIRESTORE_USERS_URL}/${userId}`
+    const fields = {
+      id: { stringValue: String(newUser.id) },
+      _id: { stringValue: String(newUser._id) },
+      name: { stringValue: String(newUser.name) },
+      username: { stringValue: String(newUser.username) },
+      email: { stringValue: String(newUser.email || '') },
+      password: { stringValue: String(newUser.password || '') },
+      voidBalance: { integerValue: String(newUser.voidBalance || 500) },
+      isPremium: { booleanValue: Boolean(newUser.isPremium) },
+      createdAt: { stringValue: String(newUser.createdAt) }
+    }
+    const firestoreUrl = `${FIRESTORE_USERS_URL}/${userId}?${getUpdateMaskParams(fields)}`
     await fetch(firestoreUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fields: {
-          id: { stringValue: String(newUser.id) },
-          _id: { stringValue: String(newUser._id) },
-          name: { stringValue: String(newUser.name) },
-          username: { stringValue: String(newUser.username) },
-          email: { stringValue: String(newUser.email || '') },
-          password: { stringValue: String(newUser.password || '') },
-          voidBalance: { integerValue: String(newUser.voidBalance || 500) },
-          isPremium: { booleanValue: Boolean(newUser.isPremium) },
-          createdAt: { stringValue: String(newUser.createdAt) }
-        }
-      })
+      body: JSON.stringify({ fields })
     })
   } catch (e) {
     console.log('Cloud user register sync error:', e)
@@ -243,6 +249,41 @@ export const loginUser = async (data) => {
 
 export const getMe = async () => {
   const currentUser = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  if (currentUser && currentUser._id) {
+    try {
+      const docUrl = `${FIRESTORE_USERS_URL}/${currentUser._id}`
+      const res = await fetch(docUrl)
+      if (res.ok) {
+        const doc = await res.json()
+        if (doc && doc.fields) {
+          const fields = doc.fields
+          const updatedUser = {
+            ...currentUser,
+            name: fields.name?.stringValue || currentUser.name || 'User',
+            username: fields.username?.stringValue || currentUser.username || 'user',
+            avatar: fields.avatar?.stringValue || currentUser.avatar || '💬',
+            bio: fields.bio?.stringValue || currentUser.bio || '',
+            voidBalance: fields.voidBalance?.integerValue ? Number(fields.voidBalance.integerValue) : (currentUser.voidBalance || 500),
+            isPremium: fields.isPremium?.booleanValue !== undefined ? fields.isPremium.booleanValue : !!currentUser.isPremium,
+          }
+          if (fields.starredMessages?.stringValue) {
+            try { updatedUser.starredMessages = JSON.parse(fields.starredMessages.stringValue) } catch (e) {}
+          }
+          if (fields.lockedChats?.stringValue) {
+            try { updatedUser.lockedChats = JSON.parse(fields.lockedChats.stringValue) } catch (e) {}
+          }
+          if (fields.secretFolderPin?.stringValue) {
+            updatedUser.secretFolderPin = fields.secretFolderPin.stringValue
+          }
+          if (fields.activeChatIds?.stringValue) {
+            try { updatedUser.activeChatIds = JSON.parse(fields.activeChatIds.stringValue) } catch (e) {}
+          }
+          await setStoredData('@void_current_user', updatedUser)
+          return { data: { success: true, user: updatedUser } }
+        }
+      }
+    } catch (e) {}
+  }
   return {
     data: {
       success: true,
@@ -276,7 +317,8 @@ export const getUsers = async () => {
             username: uname,
             email: fields.email?.stringValue || '',
             password: fields.password?.stringValue || '',
-            avatar: (fields.name?.stringValue || uname || 'U')[0].toUpperCase(),
+            avatar: fields.avatar?.stringValue || (fields.name?.stringValue || uname || 'U')[0].toUpperCase(),
+            bio: fields.bio?.stringValue || '',
             voidBalance: Number(fields.voidBalance?.integerValue || 500),
             isPremium: Boolean(fields.isPremium?.booleanValue),
             createdAt: fields.createdAt?.stringValue || new Date().toISOString()
@@ -495,13 +537,53 @@ export const blockUser = async (userId) => {
 }
 
 export const updatePreferences = async (data) => {
-  const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  const me = (await getStoredData('@void_current_user', DEFAULT_USERS[0])) || DEFAULT_USERS[0]
   const updated = { ...me, ...data }
   await setStoredData('@void_current_user', updated)
+
+  // Sync to Cloud Firestore if user has a valid ID
+  if (updated._id) {
+    try {
+      // Construct fields dynamically based on what exists on the user object
+      const fields = {}
+      if (updated.id) fields.id = { stringValue: String(updated.id) }
+      if (updated._id) fields._id = { stringValue: String(updated._id) }
+      if (updated.name) fields.name = { stringValue: String(updated.name) }
+      if (updated.username) fields.username = { stringValue: String(updated.username) }
+      if (updated.email) fields.email = { stringValue: String(updated.email || '') }
+      if (updated.password) fields.password = { stringValue: String(updated.password || '') }
+      if (updated.avatar) fields.avatar = { stringValue: String(updated.avatar || '💬') }
+      if (updated.bio) fields.bio = { stringValue: String(updated.bio || '') }
+      if (updated.voidBalance !== undefined) fields.voidBalance = { integerValue: String(updated.voidBalance) }
+      if (updated.isPremium !== undefined) fields.isPremium = { booleanValue: Boolean(updated.isPremium) }
+      if (updated.createdAt) fields.createdAt = { stringValue: String(updated.createdAt) }
+      
+      // Include any other syncable preferences if needed
+      if (updated.starredMessages) fields.starredMessages = { stringValue: JSON.stringify(updated.starredMessages) }
+      if (updated.lockedChats) fields.lockedChats = { stringValue: JSON.stringify(updated.lockedChats) }
+      if (updated.secretFolderPin) fields.secretFolderPin = { stringValue: String(updated.secretFolderPin) }
+
+      const firestoreUrl = `${FIRESTORE_USERS_URL}/${updated._id}?${getUpdateMaskParams(fields)}`
+      await fetch(firestoreUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+      })
+    } catch (e) {
+      console.log('Error syncing user preferences to Firestore:', e)
+    }
+  }
+
   return { data: { success: true, user: updated } }
 }
 
 // ── Messages APIs ──────────────────────────────────────────────────────────
+const getChatRoomId = (id1, id2) => {
+  const str1 = String(id1 || 'me')
+  const str2 = String(id2 || 'them')
+  return str1 < str2 ? `${str1}_${str2}` : `${str2}_${str1}`
+}
+
 export const sendMessage = async (data) => {
   const { receiverId, content } = data
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
@@ -519,9 +601,21 @@ export const sendMessage = async (data) => {
   messages.push(newMsg)
   await setStoredData('@void_messages', messages)
 
-  // Push to Cloud Firestore for 100% instant cross-device delivery
+  // 1. Add recipient to my local activeChatIds list
+  if (me._id) {
+    let myActiveChats = me.activeChatIds || []
+    if (!myActiveChats.includes(receiverId)) {
+      myActiveChats.push(receiverId)
+      me.activeChatIds = myActiveChats
+      await setStoredData('@void_current_user', me)
+    }
+  }
+
+  // 2. Push message to Cloud Firestore for 100% instant cross-device delivery
   try {
-    await fetch(`${FIRESTORE_MESSAGES_URL}?documentId=${newMsg._id}`, {
+    const chatRoomId = getChatRoomId(me._id || 'me', receiverId)
+    const url = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages?documentId=${newMsg._id}`
+    await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -536,6 +630,46 @@ export const sendMessage = async (data) => {
       })
     })
   } catch (e) {}
+
+  // 3. Sync to both sender and receiver's Firestore profiles to update activeChatIds list
+  if (me._id) {
+    try {
+      // Update sender's activeChatIds on Firestore
+      let senderActiveChats = me.activeChatIds || []
+      const senderFields = {
+        activeChatIds: { stringValue: JSON.stringify(senderActiveChats) }
+      }
+      await fetch(`${FIRESTORE_USERS_URL}/${me._id}?updateMask.fieldPaths=activeChatIds`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: senderFields })
+      })
+
+      // Fetch and update receiver's activeChatIds on Firestore
+      const receiverRes = await fetch(`${FIRESTORE_USERS_URL}/${receiverId}`)
+      if (receiverRes.ok) {
+        const receiverDoc = await receiverRes.json()
+        const fields = receiverDoc.fields || {}
+        let receiverActiveChats = []
+        if (fields.activeChatIds?.stringValue) {
+          try { receiverActiveChats = JSON.parse(fields.activeChatIds.stringValue) } catch (e) {}
+        }
+        if (!receiverActiveChats.includes(me._id)) {
+          receiverActiveChats.push(me._id)
+          const receiverFields = {
+            activeChatIds: { stringValue: JSON.stringify(receiverActiveChats) }
+          }
+          await fetch(`${FIRESTORE_USERS_URL}/${receiverId}?updateMask.fieldPaths=activeChatIds`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: receiverFields })
+          })
+        }
+      }
+    } catch (e) {
+      console.log('Error updating activeChatIds on message send:', e)
+    }
+  }
 
   // Credit streak VOID bonus
   me.voidBalance = (me.voidBalance || 0) + 10
@@ -556,9 +690,11 @@ export const getMessages = async (userId) => {
   const myId = me._id || 'me'
   let messages = await getStoredData('@void_messages', DEFAULT_MESSAGES)
 
-  // Fetch Cloud Firestore Messages for cross-device real-time sync
+  // Fetch Cloud Firestore Messages for this specific chat room
   try {
-    const res = await fetch(FIRESTORE_MESSAGES_URL)
+    const chatRoomId = getChatRoomId(myId, userId)
+    const url = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages?pageSize=1000`
+    const res = await fetch(url)
     if (res.ok) {
       const json = await res.json()
       if (json.documents && Array.isArray(json.documents)) {
@@ -594,6 +730,27 @@ export const getMessages = async (userId) => {
   })
 
   return { data: { success: true, messages: conversation } }
+}
+
+export const deleteMessage = async (receiverId, msgId) => {
+  const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  const myId = me._id || 'me'
+
+  // 1. Delete from local storage
+  let messages = await getStoredData('@void_messages', DEFAULT_MESSAGES)
+  messages = messages.filter(m => m._id !== msgId && m.id !== msgId)
+  await setStoredData('@void_messages', messages)
+
+  // 2. Delete from Cloud Firestore
+  try {
+    const chatRoomId = getChatRoomId(myId, receiverId)
+    const url = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages/${msgId}`
+    await fetch(url, {
+      method: 'DELETE'
+    })
+  } catch (e) {}
+
+  return { data: { success: true } }
 }
 
 // ── Group Messages APIs ─────────────────────────────────────────────────────

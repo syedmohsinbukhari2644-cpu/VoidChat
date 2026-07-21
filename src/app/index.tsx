@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, StatusBar, SafeAreaView, Alert, Modal,
@@ -16,6 +17,8 @@ import Icon from '../components/Icon'
 import * as Contacts from 'expo-contacts'
 import * as ImagePicker from 'expo-image-picker'
 import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost } from './api'
+import FakeShutdownOverlay from './antitheft/FakeShutdownOverlay'
+import { saveGhostSettings, loadGhostSettings, hashPin } from './antitheft/AntiTheftService'
 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions()
@@ -163,6 +166,15 @@ export default function App() {
   const [passcodeEnabled, setPasscodeEnabled] = useState(false)
   const [passcodePin, setPasscodePin] = useState('')
   const [passkeyEnabled, setPasskeyEnabled] = useState(false)
+
+  // ── Ghost Mode (Anti-Theft) States ──
+  const [ghostModeActive, setGhostModeActive] = useState(false)
+  const [ghostModeEnabled, setGhostModeEnabled] = useState(false)
+  const [ghostPinInput, setGhostPinInput] = useState('')
+  const [ghostPinConfirm, setGhostPinConfirm] = useState('')
+  const [ghostEmergencyContact, setGhostEmergencyContact] = useState('')
+  const [ghostSetupStep, setGhostSetupStep] = useState(0) // 0=off, 1=set_pin, 2=confirm_pin
+  const [ghostUserId, setGhostUserId] = useState(null)
   const [inboxSearchQuery, setInboxSearchQuery] = useState('')
   const [socialSearchQuery, setSocialSearchQuery] = useState('')
   const [activeDevices, setActiveDevices] = useState([
@@ -231,13 +243,8 @@ export default function App() {
   const [statusPrivacySelectedUsers, setStatusPrivacySelectedUsers] = useState([])
 
   // ── Chat Lists (state so updates propagate) ──
-  const [chatModeChats, setChatModeChats] = useState([
-    { id: '4', name: 'Ali Bhai', color: '#10b981', unread: 1, streak: 8, phoneNumber: '+92 312 9876543' },
-  ])
-  const [socialModeChats, setSocialModeChats] = useState([
-    { id: '2', name: 'Inklab Group', color: '#ff4d4d', unread: 12, streak: 0 },
-    { id: '3', name: 'Anonymous_42', color: '#6366f1', unread: 0, streak: 23 },
-  ])
+  const [chatModeChats, setChatModeChats] = useState([])
+  const [socialModeChats, setSocialModeChats] = useState([])
 
   // ── Translation Dictionary ──
   const T = {
@@ -518,14 +525,13 @@ export default function App() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
 
   const handleOpenAccountSettings = () => {
-    if (appMode === 'chat') {
-      setUsernameText(chatUsername)
-      setBioText(chatBio)
-      setTempAvatar(chatAvatar)
-    } else {
-      setUsernameText(socialUsername)
-      setBioText(socialBio)
-      setTempAvatar(socialAvatar)
+    setUsernameText(currentUser?.username || (appMode === 'chat' ? chatUsername : socialUsername))
+    setBioText(currentUser?.bio || (appMode === 'chat' ? chatBio : socialBio))
+    setTempAvatar(currentUser?.avatar || (appMode === 'chat' ? chatAvatar : socialAvatar))
+    if (currentUser?.name) {
+      const parts = currentUser.name.split(' ')
+      setFirstName(parts[0] || '')
+      setLastName(parts.slice(1).join(' ') || '')
     }
     setShowAccountModal(true)
   }
@@ -824,32 +830,129 @@ export default function App() {
 
   const handleSaveProfile = async () => {
     try {
-      await AsyncStorage.setItem('user_first_name', firstName)
-      await AsyncStorage.setItem('user_last_name', lastName)
-      await AsyncStorage.setItem('user_birthday', birthdayText)
+      await AsyncStorage.setItem('user_first_name', String(firstName || ''))
+      await AsyncStorage.setItem('user_last_name', String(lastName || ''))
+      await AsyncStorage.setItem('user_birthday', String(birthdayText || ''))
 
+      // Update local storage and app state for app modes
       if (appMode === 'chat') {
-        await AsyncStorage.setItem('chat_username', usernameText)
-        await AsyncStorage.setItem('chat_bio', bioText)
-        await AsyncStorage.setItem('chat_avatar', tempAvatar)
-        setChatUsername(usernameText)
-        setChatBio(bioText)
-        setChatAvatar(tempAvatar)
+        await AsyncStorage.setItem('chat_username', String(usernameText || ''))
+        await AsyncStorage.setItem('chat_bio', String(bioText || ''))
+        await AsyncStorage.setItem('chat_avatar', String(tempAvatar || ''))
+        setChatUsername(usernameText || '')
+        setChatBio(bioText || '')
+        setChatAvatar(tempAvatar || '')
       } else {
-        await AsyncStorage.setItem('social_username', usernameText)
-        await AsyncStorage.setItem('social_bio', bioText)
-        await AsyncStorage.setItem('social_avatar', tempAvatar)
-        setSocialUsername(usernameText)
-        setSocialBio(bioText)
-        setSocialAvatar(tempAvatar)
+        await AsyncStorage.setItem('social_username', String(usernameText || ''))
+        await AsyncStorage.setItem('social_bio', String(bioText || ''))
+        await AsyncStorage.setItem('social_avatar', String(tempAvatar || ''))
+        setSocialUsername(usernameText || '')
+        setSocialBio(bioText || '')
+        setSocialAvatar(tempAvatar || '')
       }
+
+      // Sync globally (AsyncStorage '@void_current_user' and Cloud Firestore)
+      const fullname = `${firstName || ''} ${lastName || ''}`.trim() || usernameText || 'User'
+      const updatedUserFields = {
+        name: fullname,
+        username: usernameText || 'user',
+        bio: bioText || '',
+        avatar: tempAvatar || '💬'
+      }
+
+      const res = await updatePreferences(updatedUserFields)
+      if (res.data && res.data.user) {
+        setCurrentUser(res.data.user)
+      }
+
+      // Refresh users list so search matches updated data instantly
+      loadUsers()
 
       Alert.alert('Success', 'Profile saved successfully!')
       setShowAccountModal(false)
     } catch (e) {
-      Alert.alert('Error', 'Failed to save profile.')
+      Alert.alert('Error', 'Failed to save profile: ' + (e.message || e))
     }
   }
+
+  const testFirestoreConnection = async () => {
+    try {
+      const testId = 'test_doc_' + Date.now()
+      const url = `https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents/users/${testId}?updateMask.fieldPaths=testField`
+      
+      const writeRes = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            testField: { stringValue: 'hello_world' }
+          }
+        })
+      })
+      
+      const writeStatus = writeRes.status
+      const writeOk = writeRes.ok
+      const writeText = await writeRes.text()
+      
+      const readRes = await fetch(`https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents/users/${testId}`)
+      const readStatus = readRes.status
+      const readOk = readRes.ok
+      const readText = await readRes.text()
+      
+      Alert.alert(
+        'Database Sync Test',
+        `Write Status: ${writeStatus} (${writeOk ? 'SUCCESS' : 'FAILED'})\nWrite Msg: ${writeText.substring(0, 150)}\n\nRead Status: ${readStatus} (${readOk ? 'SUCCESS' : 'FAILED'})\nRead Msg: ${readText.substring(0, 150)}`
+      )
+    } catch (err) {
+      Alert.alert('Database Test Error', err.message || String(err))
+    }
+  }
+
+  const handleSelectUserToChat = async (u) => {
+    const targetId = u._id || u.id
+    const currentList = currentUser?.activeChatIds || []
+    if (!currentList.includes(targetId)) {
+      const updatedList = [...currentList, targetId]
+      const optimUser = { ...currentUser, activeChatIds: updatedList }
+      setCurrentUser(optimUser)
+      try {
+        const res = await updatePreferences({ activeChatIds: updatedList })
+        if (res.data?.user) {
+          setCurrentUser(res.data.user)
+        }
+      } catch (e) {}
+    }
+  }
+
+  // Sync chat lists dynamically from currentUser's activeChatIds list
+  useEffect(() => {
+    if (!currentUser) return
+    const activeIds = currentUser.activeChatIds || []
+    
+    const mappedChats = users
+      .filter(u => {
+        const uid = String(u._id || u.id)
+        const isSelf = String(currentUser._id || currentUser.id) === uid
+        return !isSelf && activeIds.includes(uid)
+      })
+      .map(u => ({
+        id: u._id || u.id,
+        name: u.name || u.username,
+        username: u.username,
+        phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+        color: u.isPremium ? '#ffc800' : '#10b981',
+        avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+        streak: u.streakDays || 0,
+        unread: 0
+      }))
+
+    setChatModeChats(mappedChats)
+
+    const groupChats = [
+      { id: 'group_inklab', name: 'Inklab Group (Global)', color: '#ff4d4d', unread: 0, streak: 0, isGroup: true }
+    ]
+    setSocialModeChats([...groupChats, ...mappedChats])
+  }, [users, currentUser])
 
   // Android hardware back button handler
   useEffect(() => {
@@ -990,7 +1093,26 @@ export default function App() {
       setSavedPostIds(res.data.user.savedPosts || [])
 
       // Sync cloud preferences with local state and AsyncStorage
-      const { starredMessages, lockedChats, secretFolderPin } = res.data.user
+      const { starredMessages, lockedChats, secretFolderPin, username, name, avatar, bio } = res.data.user
+      
+      if (username) {
+        setChatUsername(username)
+        setSocialUsername(username)
+      }
+      if (avatar) {
+        setChatAvatar(avatar)
+        setSocialAvatar(avatar)
+      }
+      if (bio) {
+        setChatBio(bio)
+        setSocialBio(bio)
+      }
+      if (name) {
+        const parts = name.split(' ')
+        setFirstName(parts[0] || '')
+        setLastName(parts.slice(1).join(' ') || '')
+      }
+
       if (starredMessages) {
         await AsyncStorage.setItem('starred_messages', JSON.stringify(starredMessages))
       }
@@ -1901,7 +2023,8 @@ export default function App() {
                       <TouchableOpacity
                         key={u._id || u.id}
                         style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
-                        onPress={() => {
+                        onPress={async () => {
+                          await handleSelectUserToChat(u)
                           const newChatObj = {
                             id: u._id || u.id,
                             name: u.name || u.username,
@@ -1911,9 +2034,6 @@ export default function App() {
                             avatar: (u.username || u.name || 'U')[0].toUpperCase(),
                             streak: 0,
                             unread: 0
-                          }
-                          if (!chatModeChats.some(c => String(c.id) === String(newChatObj.id))) {
-                            setChatModeChats(prev => [newChatObj, ...prev])
                           }
                           setShowChat(newChatObj)
                           setInboxSearchQuery('')
@@ -1964,7 +2084,9 @@ export default function App() {
                   </View>
                   <View style={styles.chatInfo}>
                     <Text style={[styles.chatName, { color: theme.text }]}>{chat.name}</Text>
-                    <Text style={{ color: theme.subText, fontSize: 12, marginTop: 2 }}>{chat.phoneNumber}</Text>
+                    <Text style={{ color: theme.subText, fontSize: 12, marginTop: 2 }}>
+                      {chat.username ? `@${chat.username}` : (chat.phoneNumber && !chat.phoneNumber.includes('@') ? chat.phoneNumber : '')}
+                    </Text>
                     <Text style={[styles.chatLast, { color: theme.subText }]}>🔐 Encrypted chat</Text>
                   </View>
                   <TouchableOpacity
@@ -2185,7 +2307,8 @@ export default function App() {
                   <TouchableOpacity
                     key={u._id || u.id}
                     style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: '#6366f1', borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
-                    onPress={() => {
+                    onPress={async () => {
+                      await handleSelectUserToChat(u)
                       const newChatObj = {
                         id: u._id || u.id,
                         name: u.name || u.username,
@@ -2195,9 +2318,6 @@ export default function App() {
                         avatar: (u.username || u.name || 'U')[0].toUpperCase(),
                         streak: 0,
                         unread: 0
-                      }
-                      if (!socialModeChats.some(c => String(c.id) === String(newChatObj.id))) {
-                        setSocialModeChats(prev => [newChatObj, ...prev])
                       }
                       setShowChat(newChatObj)
                       setInboxSearchQuery('')
@@ -2505,7 +2625,8 @@ export default function App() {
               <View style={{ flex: 1 }}>
                 {showChat ? (
                   <ChatScreen
-                    contact={showChat}
+                    contact={{ ...showChat, myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
+                    activeChats={chatModeChats}
                     onBack={() => setShowChat(false)}
                     onViewProfile={(profile) => setSelectedUserProfile(profile)}
                     blockedUsers={currentUserBlockedList}
@@ -2892,7 +3013,8 @@ export default function App() {
         onRequestClose={() => setShowChat(false)}
       >
         <ChatScreen
-          contact={showChat}
+          contact={{ ...showChat, myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
+          activeChats={chatModeChats}
           onBack={() => setShowChat(false)}
           onViewProfile={(profile) => setSelectedUserProfile(profile)}
           blockedUsers={currentUserBlockedList}
@@ -3263,6 +3385,25 @@ export default function App() {
                 placeholderTextColor="#4b5563"
               />
             </View>
+
+            {/* Database Sync Test */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 16,
+                backgroundColor: '#1c1800',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#ffc80050',
+                marginTop: 10,
+              }}
+              onPress={testFirestoreConnection}
+            >
+              <Text style={{ fontSize: 18, marginRight: 10 }}>🧪</Text>
+              <Text style={{ color: '#ffc800', fontSize: 15, fontWeight: '700', flex: 1 }}>Test Database Sync</Text>
+              <Text style={{ color: '#ffc800', fontSize: 18 }}>›</Text>
+            </TouchableOpacity>
 
             {/* Add Account */}
             <TouchableOpacity
@@ -4029,6 +4170,134 @@ export default function App() {
                 ))}
               </View>
             </View>
+
+            {/* 7. Ghost Mode — Anti-Theft */}
+            <View style={[styles.settingsSection, { backgroundColor: '#0a0a12', borderColor: '#c8ff0025', borderWidth: 1.5 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Text style={{ fontSize: 20 }}>👻</Text>
+                <Text style={[styles.settingsSectionTitle, { color: '#c8ff00' }]}>Ghost Mode (Anti-Theft)</Text>
+              </View>
+              <Text style={{ color: '#8b8ba7', fontSize: 12, marginBottom: 14, lineHeight: 18 }}>
+                When activated, a fake shutdown will lock your screen. Your location is silently tracked. Unlock remotely from{' '}
+                <Text style={{ color: '#c8ff00', fontWeight: '700' }}>azaad-app.web.app/track.html</Text>
+              </Text>
+
+              {!ghostModeEnabled ? (
+                // Setup: not enabled yet
+                ghostSetupStep === 0 ? (
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#c8ff0018', borderWidth: 1, borderColor: '#c8ff0040', borderRadius: 12, padding: 14, alignItems: 'center' }}
+                    onPress={() => setGhostSetupStep(1)}
+                  >
+                    <Text style={{ color: '#c8ff00', fontWeight: '800', fontSize: 14 }}>⚙️ Set Up Ghost Mode</Text>
+                  </TouchableOpacity>
+                ) : ghostSetupStep === 1 ? (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>Step 1: Set your Ghost PIN</Text>
+                    <TextInput
+                      style={{ backgroundColor: '#111118', borderRadius: 10, borderWidth: 1, borderColor: '#2a2a3e', padding: 12, color: '#fff', fontSize: 18, textAlign: 'center', letterSpacing: 6 }}
+                      value={ghostPinInput}
+                      onChangeText={setGhostPinInput}
+                      placeholder="4–8 digit PIN"
+                      placeholderTextColor="#555"
+                      secureTextEntry
+                      keyboardType="numeric"
+                      maxLength={8}
+                    />
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#c8ff00', borderRadius: 10, padding: 12, alignItems: 'center' }}
+                      onPress={() => { if (ghostPinInput.length >= 4) setGhostSetupStep(2); else Alert.alert('PIN Too Short', 'PIN must be at least 4 digits.') }}
+                    >
+                      <Text style={{ color: '#000', fontWeight: '800' }}>Next →</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setGhostSetupStep(0); setGhostPinInput('') }}>
+                      <Text style={{ color: '#555', textAlign: 'center', fontSize: 12 }}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : ghostSetupStep === 2 ? (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '700' }}>Step 2: Confirm PIN</Text>
+                    <TextInput
+                      style={{ backgroundColor: '#111118', borderRadius: 10, borderWidth: 1, borderColor: '#2a2a3e', padding: 12, color: '#fff', fontSize: 18, textAlign: 'center', letterSpacing: 6 }}
+                      value={ghostPinConfirm}
+                      onChangeText={setGhostPinConfirm}
+                      placeholder="Confirm PIN"
+                      placeholderTextColor="#555"
+                      secureTextEntry
+                      keyboardType="numeric"
+                      maxLength={8}
+                    />
+                    <Text style={{ color: '#8b8ba7', fontSize: 12 }}>Optional: Emergency contact email</Text>
+                    <TextInput
+                      style={{ backgroundColor: '#111118', borderRadius: 10, borderWidth: 1, borderColor: '#2a2a3e', padding: 12, color: '#fff', fontSize: 13 }}
+                      value={ghostEmergencyContact}
+                      onChangeText={setGhostEmergencyContact}
+                      placeholder="emergency@email.com"
+                      placeholderTextColor="#555"
+                      keyboardType="email-address"
+                    />
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#c8ff00', borderRadius: 10, padding: 12, alignItems: 'center' }}
+                      onPress={async () => {
+                        if (ghostPinConfirm !== ghostPinInput) {
+                          Alert.alert('PIN Mismatch', 'PINs do not match. Try again.')
+                          setGhostPinConfirm('')
+                          return
+                        }
+                        const me = await loadGhostSettings()
+                        const uid = (currentUser?._id || currentUser?.id || 'void_user_' + Date.now()).toString()
+                        const pinHash = hashPin(ghostPinInput)
+                        await saveGhostSettings({ enabled: true, pin: pinHash, emergencyContact: ghostEmergencyContact, userId: uid })
+                        setGhostUserId(uid)
+                        setGhostModeEnabled(true)
+                        setGhostSetupStep(0)
+                        setGhostPinInput('')
+                        setGhostPinConfirm('')
+                        Alert.alert('👻 Ghost Mode Ready!', 'Tap the 👻 button on your profile to activate. Unlock remotely from azaad-app.web.app/track.html')
+                      }}
+                    >
+                      <Text style={{ color: '#000', fontWeight: '800' }}>✅ Save & Enable Ghost Mode</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => { setGhostSetupStep(1); setGhostPinConfirm('') }}>
+                      <Text style={{ color: '#555', textAlign: 'center', fontSize: 12 }}>← Back</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null
+              ) : (
+                // Ghost mode already configured
+                <View style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: '#c8ff00', fontWeight: '700', fontSize: 13 }}>✅ Ghost Mode Configured</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#c8ff00', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}
+                        onPress={() => {
+                          setGhostModeActive(true)
+                          setShowPrivacySettings(false)
+                          Alert.alert('👻 Ghost Mode ON!', 'Fake shutdown activated. Track your phone at:\nazaad-app.web.app/track.html')
+                        }}
+                      >
+                        <Text style={{ color: '#000', fontWeight: '800', fontSize: 12 }}>Activate Now</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await saveGhostSettings({ enabled: false, pin: '', emergencyContact: '', userId: null })
+                      setGhostModeEnabled(false)
+                      setGhostUserId(null)
+                      Alert.alert('Disabled', 'Ghost Mode has been removed.')
+                    }}
+                  >
+                    <Text style={{ color: '#ef4444', fontSize: 12, textAlign: 'center' }}>🗑️ Remove Ghost Mode</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: '#555', fontSize: 11, textAlign: 'center' }}>
+                    Remote tracker: azaad-app.web.app/track.html
+                  </Text>
+                </View>
+              )}
+            </View>
+
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -4625,7 +4894,9 @@ export default function App() {
                   </View>
                   <View style={styles.chatInfo}>
                     <Text style={styles.chatName}>{chat.name}</Text>
-                    <Text style={{ color: '#8b8ba7', fontSize: 12, marginTop: 2 }}>{chat.phoneNumber}</Text>
+                    <Text style={{ color: '#8b8ba7', fontSize: 12, marginTop: 2 }}>
+                      {chat.username ? `@${chat.username}` : (chat.phoneNumber && !chat.phoneNumber.includes('@') ? chat.phoneNumber : '')}
+                    </Text>
                     <Text style={styles.chatLast}>💬 Secret chat open • End-to-End Encrypted</Text>
                   </View>
                   {chat.unread > 0 && (
@@ -6200,6 +6471,13 @@ export default function App() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* 👻 Ghost Mode Fake Shutdown Overlay — renders above everything */}
+      <FakeShutdownOverlay
+        visible={ghostModeActive}
+        userId={ghostUserId || 'void_default'}
+        onDeactivate={() => setGhostModeActive(false)}
+      />
 
     </SafeAreaView>
   )
