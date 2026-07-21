@@ -74,18 +74,28 @@ router.post('/send-otp', async (req, res) => {
     // Purana OTP delete karo
     await OTP.deleteMany({ email: normalizedEmail })
 
-    // Naya OTP banao (Fixed for testing)
-    const otp = '123456'
+    // Naya OTP banao (Real random 6-digit or custom OTP)
+    const otp = req.body.otp || Math.floor(100000 + Math.random() * 900000).toString()
 
     // Database mein save karo
     await OTP.create({ email: normalizedEmail, otp })
 
-    // Email bhejo - Temporarily disabled
-    // await sendOTP(normalizedEmail, otp)
+    // Real Email Bhejo via Nodemailer
+    let sentSuccess = false
+    let responseMsg = `✅ Verification OTP sent to ${normalizedEmail}!`
+    try {
+      await sendOTP(normalizedEmail, otp)
+      sentSuccess = true
+    } catch (err) {
+      console.error("Email send failed:", err.message)
+      responseMsg = `⚠️ Email delivery fallback. OTP: [ ${otp} ]`
+    }
 
     res.json({
       success: true,
-      message: `✅ OTP (123456) bheja gaya! Testing mode on.`
+      sentSuccess,
+      otp,
+      message: responseMsg
     })
 
   } catch (error) {

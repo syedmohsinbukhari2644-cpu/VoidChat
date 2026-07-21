@@ -6,8 +6,7 @@ import {
 } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import * as NavigationBar from 'expo-navigation-bar'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+const NavigationBar = Platform.OS === 'android' ? require('expo-navigation-bar') : { setVisibilityAsync: async () => {}, setBehaviorAsync: async () => {} }
 import LoginScreen from './login'
 import ReelsScreen from './Screens/ReelsScreen'
 import ChatScreen from './Screens/screen'
@@ -226,9 +225,18 @@ export default function App() {
   const [newGroupIsPrivate, setNewGroupIsPrivate] = useState(false)
   const [selectedGroupUsers, setSelectedGroupUsers] = useState([]) // array of contact IDs
 
+  // ── Status Privacy & Lifespan States ──
+  const [showStatusPrivacyModal, setShowStatusPrivacyModal] = useState(false)
+  const [statusPrivacyOption, setStatusPrivacyOption] = useState('contacts') // 'contacts' | 'except' | 'only'
+  const [statusPrivacySelectedUsers, setStatusPrivacySelectedUsers] = useState([])
+
   // ── Chat Lists (state so updates propagate) ──
   const [chatModeChats, setChatModeChats] = useState([
     { id: '4', name: 'Ali Bhai', color: '#10b981', unread: 1, streak: 8, phoneNumber: '+92 312 9876543' },
+  ])
+  const [socialModeChats, setSocialModeChats] = useState([
+    { id: '2', name: 'Inklab Group', color: '#ff4d4d', unread: 12, streak: 0 },
+    { id: '3', name: 'Anonymous_42', color: '#6366f1', unread: 0, streak: 23 },
   ])
 
   // ── Translation Dictionary ──
@@ -525,6 +533,29 @@ export default function App() {
   // Streak States
   const [showStreak, setShowStreak] = useState(false)
   const [users, setUsers] = useState([])
+
+  // ── Fetch Registered Users for Global Discovery ──
+  useEffect(() => {
+    const fetchGlobalUsers = async () => {
+      try {
+        const res = await getUsers()
+        if (res.data && res.data.users) {
+          setUsers(res.data.users)
+        }
+      } catch (e) {}
+    }
+    fetchGlobalUsers()
+  }, [])
+
+  useEffect(() => {
+    if (inboxSearchQuery.trim().length > 0) {
+      getUsers().then(res => {
+        if (res.data && res.data.users) {
+          setUsers(res.data.users)
+        }
+      }).catch(() => {})
+    }
+  }, [inboxSearchQuery])
   const [selectedStreakUsers, setSelectedStreakUsers] = useState([])
   const [streakContent, setStreakContent] = useState('🔥 Streak!')
   const [streakType, setStreakType] = useState('text') // text or image
@@ -1187,13 +1218,19 @@ export default function App() {
       content = `[AUDIO] 🎙️ Voice status update`
     }
 
+    const durationHours = isPremiumUser ? 72 : 24
+    const expiryTimestamp = Date.now() + durationHours * 3600 * 1000
+
     const newStatus = {
       id: Date.now().toString(),
       name: `@${currentUser?.username || 'You'}`,
       avatar: (currentUser?.username?.[0] || 'Y').toUpperCase(),
       time: 'Just now',
       content: content,
-      color: color
+      color: color,
+      isPremiumStatus: isPremiumUser,
+      createdAt: Date.now(),
+      expiresAt: expiryTimestamp
     }
 
     setMockStatuses([newStatus, ...mockStatuses])
@@ -1201,20 +1238,16 @@ export default function App() {
     setStatusMediaUri(null)
     setStatusLinkUrl('')
     setShowCreateStatusModal(false)
-    Alert.alert('Success', 'Status updated successfully! 🔥')
+    Alert.alert(
+      'Status Published 🚀',
+      `Your status is live! ${isPremiumUser ? '👑 VOID Premium: Live for 72 Hours (3 Days)!' : '⏳ Normal User: Live for 24 Hours.'}`
+    )
   }
 
   const handleSyncContacts = async () => {
     setShowContactsSyncModal(true)
     setSyncingContacts(true)
     try {
-      const { status } = await Contacts.requestPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Contacts access is required to find your friends on VOID CHAT.')
-        setSyncingContacts(false)
-        return
-      }
-
       let currentUsers = users
       if (currentUsers.length === 0) {
         const res = await getUsers()
@@ -1222,42 +1255,97 @@ export default function App() {
         setUsers(currentUsers)
       }
 
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers],
-      })
-
       const matched = []
 
-      if (data && data.length > 0) {
-        data.forEach(deviceContact => {
-          if (!deviceContact.phoneNumbers || deviceContact.phoneNumbers.length === 0) return
-
-          deviceContact.phoneNumbers.forEach(pn => {
-            if (!pn.number) return
-            const cleanPn = pn.number.replace(/\D/g, '')
-
-            currentUsers.forEach(regUser => {
-              if (!regUser.email) return
-              const cleanRegEmail = regUser.email.trim().replace(/\D/g, '')
-              
-              if (cleanRegEmail.length >= 7 && cleanPn.endsWith(cleanRegEmail)) {
-                if (!matched.some(m => m.user._id === regUser._id)) {
-                  matched.push({
-                    deviceName: deviceContact.name,
-                    user: regUser,
-                    matchedNumber: pn.number
-                  })
-                }
-              }
+      // On Web: Match all registered phone users directly
+      if (Platform.OS === 'web') {
+        currentUsers.forEach(u => {
+          const ph = u.phone || u.phoneNumber || u.email || u.username || ''
+          const cleanPh = ph.replace(/\D/g, '')
+          if (cleanPh.length >= 7) {
+            matched.push({
+              deviceName: u.name || u.username || 'Phone User',
+              user: u,
+              matchedNumber: ph
             })
-          })
+          }
         })
+      } else {
+        // On Native (Android / iOS)
+        try {
+          const { status } = await Contacts.requestPermissionsAsync()
+          if (status === 'granted') {
+            const { data } = await Contacts.getContactsAsync({
+              fields: [Contacts.Fields.PhoneNumbers],
+            })
+
+            if (data && data.length > 0) {
+              data.forEach(deviceContact => {
+                if (!deviceContact.phoneNumbers || deviceContact.phoneNumbers.length === 0) return
+
+                deviceContact.phoneNumbers.forEach(pn => {
+                  if (!pn.number) return
+                  const cleanPn = pn.number.replace(/\D/g, '')
+
+                  currentUsers.forEach(regUser => {
+                    const regPhoneStr = (regUser.phone || regUser.phoneNumber || regUser.username || regUser.email || '').replace(/\D/g, '')
+
+                    if (regPhoneStr.length >= 7 && (cleanPn.endsWith(regPhoneStr) || regPhoneStr.endsWith(cleanPn))) {
+                      if (!matched.some(m => String(m.user._id || m.user.id) === String(regUser._id || regUser.id))) {
+                        matched.push({
+                          deviceName: deviceContact.name || regUser.name || 'Contact',
+                          user: regUser,
+                          matchedNumber: pn.number
+                        })
+                      }
+                    }
+                  })
+                })
+              })
+            }
+          }
+        } catch (e) {}
+
+        // Fallback: If no device permissions or 0 matches found on phone, display all registered phone users
+        if (matched.length === 0) {
+          currentUsers.forEach(u => {
+            const ph = u.phone || u.phoneNumber || u.email || u.username || ''
+            const cleanPh = ph.replace(/\D/g, '')
+            if (cleanPh.length >= 7) {
+              matched.push({
+                deviceName: u.name || u.username || 'Registered User',
+                user: u,
+                matchedNumber: ph
+              })
+            }
+          })
+        }
       }
+
+      // Automatically add all matched users to active Inbox chats
+      matched.forEach(item => {
+        const u = item.user
+        const newChatObj = {
+          id: u._id || u.id,
+          name: item.deviceName || u.name || u.username,
+          username: u.username,
+          phoneNumber: item.matchedNumber || u.email || u.username,
+          color: '#10b981',
+          avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+          streak: 0,
+          unread: 0
+        }
+        setChatModeChats(prev => {
+          if (!prev.some(c => String(c.id) === String(newChatObj.id))) {
+            return [newChatObj, ...prev]
+          }
+          return prev
+        })
+      })
 
       setMatchedContacts(matched)
     } catch (err) {
       console.error('Contacts sync error:', err)
-      Alert.alert('Error', 'Failed to read contacts.')
     } finally {
       setSyncingContacts(false)
     }
@@ -1358,13 +1446,6 @@ export default function App() {
   if (!isLoggedIn) {
     return <LoginScreen onLogin={handleLogin} />
   }
-
-  // chatModeChats is now a useState declared above
-
-  const socialModeChats = [
-    { id: '2', name: 'Inklab Group', color: '#ff4d4d', unread: 12, streak: 0 },
-    { id: '3', name: 'Anonymous_42', color: '#6366f1', unread: 0, streak: 23 },
-  ]
 
   const visibleChatModeChats = chatModeChats.filter(chat => !secretChatIds.includes(chat.id))
 
@@ -1716,7 +1797,11 @@ export default function App() {
                 justifyContent: 'center',
               }}
               onPress={() => {
-                setShowChatOptionsMenu(true)
+                if (chatInboxTab === 'status') {
+                  setShowStatusPrivacyModal(true)
+                } else {
+                  setShowChatOptionsMenu(true)
+                }
               }}
             >
               <Icon name="more_vert" size={22} color={theme.text} />
@@ -1790,6 +1875,64 @@ export default function App() {
                 </TouchableOpacity>
               )}
 
+              {/* Global Registered Users Search Results */}
+              {inboxSearchQuery.trim() !== '' && (
+                <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+                  {(() => {
+                    const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
+                    const filtered = users.filter(u => {
+                      const name = (u.name || '').toLowerCase()
+                      const uname = (u.username || '').toLowerCase()
+                      const email = (u.email || '').toLowerCase()
+                      const phone = (u.phone || u.phoneNumber || '').toLowerCase()
+                      const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                      return !isSelf && (name.includes(q) || uname.includes(q) || email.includes(q) || phone.includes(q))
+                    })
+                    if (filtered.length === 0) {
+                      return (
+                        <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border }}>
+                          <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
+                            🔍 No registered user found matching "{inboxSearchQuery}"
+                          </Text>
+                        </View>
+                      )
+                    }
+                    return filtered.map(u => (
+                      <TouchableOpacity
+                        key={u._id || u.id}
+                        style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
+                        onPress={() => {
+                          const newChatObj = {
+                            id: u._id || u.id,
+                            name: u.name || u.username,
+                            username: u.username,
+                            phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                            color: '#c8ff00',
+                            avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+                            streak: 0,
+                            unread: 0
+                          }
+                          if (!chatModeChats.some(c => String(c.id) === String(newChatObj.id))) {
+                            setChatModeChats(prev => [newChatObj, ...prev])
+                          }
+                          setShowChat(newChatObj)
+                          setInboxSearchQuery('')
+                        }}
+                      >
+                        <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
+                          <Text style={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]}>
+                            {(u.username || u.name || 'U')[0].toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.chatInfo}>
+                          <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
+                          <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to start encrypted chat</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                  })()}
+                </View>
+              )}
 
               {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => (
                 <TouchableOpacity
@@ -1925,65 +2068,85 @@ export default function App() {
                   <View
                     key={status.id}
                     style={{
-                      flexDirection: 'row',
                       backgroundColor: theme.cardBg,
                       borderRadius: 20,
                       padding: 14,
                       borderWidth: 1,
                       borderColor: theme.border,
-                      alignItems: 'center',
-                      gap: 12
+                      gap: 10
                     }}
                   >
-                    <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
-                      <Text style={[styles.avatarText, { fontSize: 14 }]}>{status.avatar}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
-                        <Text style={{ color: theme.subText, fontSize: 10 }}>{status.time}</Text>
+                    {/* Status Header with Delete Button */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' }]}>
+                          <Text style={[styles.avatarText, { fontSize: 14 }]}>{status.avatar}</Text>
+                        </View>
+                        <View>
+                          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
+                          <Text style={{ color: theme.subText, fontSize: 10 }}>{status.time}</Text>
+                        </View>
                       </View>
-                      
-                      {/* Render status content dynamically based on type prefix */}
-                      {status.content.startsWith('[MEDIA] ') ? (
-                        <View style={{ marginTop: 6, gap: 4 }}>
-                          <Text style={{ color: theme.text, fontSize: 12, fontStyle: 'italic' }}>🖼️ Image / Video update</Text>
-                          <Image 
-                            source={{ uri: status.content.replace('[MEDIA] ', '') }} 
-                            style={{ width: '100%', height: 160, borderRadius: 12, borderWidth: 1, borderColor: theme.border }} 
-                            resizeMode="cover"
-                          />
-                        </View>
-                      ) : status.content.startsWith('[LINK] ') ? (
-                        <TouchableOpacity onPress={() => handleOpenLink(status.content.replace('[LINK] ', ''))} style={{ marginTop: 6 }}>
-                          <Text style={{ color: '#3b82f6', fontSize: 13, textDecorationLine: 'underline', fontWeight: '700' }}>
-                            🔗 {status.content.replace('[LINK] ', '')}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : status.content.startsWith('[AUDIO] ') ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, backgroundColor: theme.bg, padding: 8, borderRadius: 10, alignSelf: 'flex-start' }}>
-                          <Icon name="mic" size={14} color="#ef4444" />
-                          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>🎙️ Voice Status (0:05)</Text>
-                        </View>
-                      ) : (
-                        // Text update
-                        <View style={{
-                          backgroundColor: status.color && status.color !== '#c8ff00' ? status.color : 'transparent',
-                          padding: status.color && status.color !== '#c8ff00' ? 12 : 0,
-                          borderRadius: 12,
-                          marginTop: 6
-                        }}>
-                          <Text style={{ 
-                            color: status.color && status.color !== '#c8ff00' ? '#ffffff' : theme.text, 
-                            fontSize: 13, 
-                            fontWeight: status.color && status.color !== '#c8ff00' ? '800' : 'normal',
-                            lineHeight: 18 
-                          }}>
-                            {status.content}
-                          </Text>
-                        </View>
-                      )}
+
+                      {/* Delete Status Button */}
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#ef444415', borderRadius: 10, borderWidth: 1, borderColor: '#ef444430' }}
+                        onPress={() => {
+                          Alert.alert(
+                            'Delete Status',
+                            'Are you sure you want to delete this status update?',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: () => setMockStatuses(prev => prev.filter(s => s.id !== status.id))
+                              }
+                            ]
+                          )
+                        }}
+                      >
+                        <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '700' }}>🗑️ Delete</Text>
+                      </TouchableOpacity>
                     </View>
+
+                    {/* Status Content View (Full Image & No File Path Details) */}
+                    {status.content.startsWith('[MEDIA] ') ? (
+                      <View style={{ width: '100%', height: 260, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, backgroundColor: '#050508' }}>
+                        <Image 
+                          source={{ uri: status.content.replace('[MEDIA] ', '').trim() }} 
+                          style={{ width: '100%', height: '100%' }} 
+                          resizeMode="contain"
+                        />
+                      </View>
+                    ) : status.content.startsWith('[LINK] ') ? (
+                      <TouchableOpacity onPress={() => handleOpenLink(status.content.replace('[LINK] ', ''))} style={{ marginTop: 4 }}>
+                        <Text style={{ color: '#3b82f6', fontSize: 13, textDecorationLine: 'underline', fontWeight: '700' }}>
+                          🔗 {status.content.replace('[LINK] ', '')}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : status.content.startsWith('[AUDIO] ') ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, backgroundColor: theme.bg, padding: 10, borderRadius: 12, alignSelf: 'flex-start' }}>
+                        <Icon name="mic" size={16} color="#ef4444" />
+                        <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>🎙️ Voice Status (0:05)</Text>
+                      </View>
+                    ) : (
+                      <View style={{
+                        backgroundColor: status.color && status.color !== '#c8ff00' ? status.color : 'transparent',
+                        padding: status.color && status.color !== '#c8ff00' ? 12 : 0,
+                        borderRadius: 12,
+                        marginTop: 4
+                      }}>
+                        <Text style={{ 
+                          color: status.color && status.color !== '#c8ff00' ? '#ffffff' : theme.text, 
+                          fontSize: 14, 
+                          fontWeight: status.color && status.color !== '#c8ff00' ? '800' : 'normal',
+                          lineHeight: 20 
+                        }}>
+                          {status.content}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>
@@ -1995,7 +2158,67 @@ export default function App() {
           <View style={[styles.adBanner, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
             <Text style={[styles.adText, { color: theme.subText }]}>📢 Social DMs & Updates</Text>
           </View>
-          {socialModeChats.map(chat => (
+
+          {/* Social Mode User Search Results */}
+          {inboxSearchQuery.trim() !== '' && (
+            <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+              {(() => {
+                const q = inboxSearchQuery.trim().toLowerCase()
+                const filtered = users.filter(u => {
+                  const name = (u.name || '').toLowerCase()
+                  const uname = (u.username || '').toLowerCase()
+                  const email = (u.email || '').toLowerCase()
+                  const phone = (u.phone || u.phoneNumber || '').toLowerCase()
+                  const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                  return !isSelf && (name.includes(q) || uname.includes(q) || email.includes(q) || phone.includes(q))
+                })
+                if (filtered.length === 0) {
+                  return (
+                    <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginBottom: 8 }}>
+                      <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
+                        🔍 No registered user found matching "{inboxSearchQuery}"
+                      </Text>
+                    </View>
+                  )
+                }
+                return filtered.map(u => (
+                  <TouchableOpacity
+                    key={u._id || u.id}
+                    style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: '#6366f1', borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
+                    onPress={() => {
+                      const newChatObj = {
+                        id: u._id || u.id,
+                        name: u.name || u.username,
+                        username: u.username,
+                        phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                        color: '#6366f1',
+                        avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+                        streak: 0,
+                        unread: 0
+                      }
+                      if (!socialModeChats.some(c => String(c.id) === String(newChatObj.id))) {
+                        setSocialModeChats(prev => [newChatObj, ...prev])
+                      }
+                      setShowChat(newChatObj)
+                      setInboxSearchQuery('')
+                    }}
+                  >
+                    <View style={[styles.chatAvatar, { backgroundColor: '#6366f1', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text style={[styles.avatarText, { color: '#fff', fontSize: 16, fontWeight: '900' }]}>
+                        {(u.username || u.name || 'U')[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.chatInfo}>
+                      <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
+                      <Text style={{ color: '#6366f1', fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to send Social DM</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              })()}
+            </View>
+          )}
+
+          {socialModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => (
             <TouchableOpacity
               key={chat.id}
               style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
@@ -5136,7 +5359,7 @@ export default function App() {
         </SafeAreaView>
       </Modal>
 
-      {/* Custom Chat Options Modal (Dropdown) */}
+      {/* ── Ultra-Premium 3-Dots Dropdown Options Modal ── */}
       <Modal
         visible={showChatOptionsMenu}
         transparent
@@ -5144,46 +5367,107 @@ export default function App() {
         onRequestClose={() => setShowChatOptionsMenu(false)}
       >
         <TouchableOpacity 
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center' }}
+          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 10, 0.85)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}
           activeOpacity={1}
           onPress={() => setShowChatOptionsMenu(false)}
         >
-          <View style={{ backgroundColor: '#0e0e14', borderRadius: 24, borderWidth: 1, borderColor: '#1e1e2c', width: 280, padding: 14, gap: 4 }}>
-            <View style={{ padding: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e2d', marginBottom: 8, alignItems: 'center' }}>
-              <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '900', letterSpacing: 0.5 }}>VOID OPTIONS</Text>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: '#0e0e16',
+              borderRadius: 28,
+              borderWidth: 1.5,
+              borderColor: theme.primary || '#c8ff00',
+              width: '100%',
+              maxWidth: 340,
+              padding: 20,
+              gap: 12,
+              shadowColor: theme.primary || '#c8ff00',
+              shadowOffset: { width: 0, height: 14 },
+              shadowOpacity: 0.35,
+              shadowRadius: 28,
+              elevation: 20
+            }}
+          >
+            {/* Header Badge */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#1e1e2d', paddingBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: (theme.primary || '#c8ff00') + '20', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: (theme.primary || '#c8ff00') + '40' }}>
+                  <Text style={{ fontSize: 18 }}>⚡</Text>
+                </View>
+                <View>
+                  <Text style={{ color: theme.primary || '#c8ff00', fontSize: 16, fontWeight: '900', letterSpacing: 0.8 }}>VOID OPTIONS</Text>
+                  <Text style={{ color: theme.subText || '#8b8ba7', fontSize: 11 }}>Quick Shortcuts & Settings</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowChatOptionsMenu(false)} style={{ padding: 4 }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '800' }}>✕</Text>
+              </TouchableOpacity>
             </View>
 
-            {[
-              { label: '👥 New Group', action: () => { setShowChatOptionsMenu(false); setShowCreateGroupModal(true); } },
-              { label: '🌐 New Community', action: () => { setShowChatOptionsMenu(false); Alert.alert('New Community', 'Community creation is currently in invite-only beta.'); } },
-              { label: '📢 Broadcast List', action: () => { setShowChatOptionsMenu(false); Alert.alert('Broadcast List', 'Broadcast lists feature coming soon.'); } },
-              { label: '👤 Sync Contacts', action: () => { setShowChatOptionsMenu(false); handleSyncContacts(); } },
-              { label: '💻 Linked Devices', action: () => { setShowChatOptionsMenu(false); setShowDevicesModal(true); } },
-              { label: '⭐ Starred Messages', action: async () => {
-                setShowChatOptionsMenu(false);
-                try {
-                  const stored = await AsyncStorage.getItem('starred_messages') || '[]';
-                  setStarredMessages(JSON.parse(stored));
-                } catch (e) {}
-                setShowStarredModal(true);
-              }},
-            ].map((opt, i) => (
-              <TouchableOpacity
-                key={i}
-                style={{ paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, backgroundColor: 'transparent' }}
-                onPress={opt.action}
-              >
-                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>{opt.label}</Text>
-              </TouchableOpacity>
-            ))}
+            {/* Menu Actions */}
+            <View style={{ gap: 8 }}>
+              {[
+                { icon: 'groups', color: '#10b981', label: 'New Group', sub: 'Create end-to-end encrypted group', action: () => { setShowChatOptionsMenu(false); setShowCreateGroupModal(true); } },
+                { icon: 'public', color: '#3b82f6', label: 'New Community', sub: 'Invite-only broadcast communities', action: () => { setShowChatOptionsMenu(false); Alert.alert('New Community', 'Community creation is currently in invite-only beta.'); } },
+                { icon: 'campaign', color: '#ec4899', label: 'Broadcast List', sub: 'Send mass message to contacts', action: () => { setShowChatOptionsMenu(false); Alert.alert('Broadcast List', 'Broadcast lists feature coming soon.'); } },
+                { icon: 'sync', color: '#f59e0b', label: 'Sync Contacts', sub: 'Scan phonebook for registered friends', action: () => { setShowChatOptionsMenu(false); handleSyncContacts(); } },
+                { icon: 'devices', color: '#8b5cf6', label: 'Linked Devices', sub: 'Manage multi-device web sessions', action: () => { setShowChatOptionsMenu(false); setShowDevicesModal(true); } },
+                { icon: 'star', color: '#eab308', label: 'Starred Messages', sub: 'View bookmarked chat messages', action: async () => {
+                  setShowChatOptionsMenu(false);
+                  try {
+                    const stored = await AsyncStorage.getItem('starred_messages') || '[]';
+                    setStarredMessages(JSON.parse(stored));
+                  } catch (e) {}
+                  setShowStarredModal(true);
+                }},
+              ].map((opt, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  activeOpacity={0.75}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 12,
+                    borderRadius: 16,
+                    backgroundColor: '#161622',
+                    borderWidth: 1,
+                    borderColor: '#1e1e2d'
+                  }}
+                  onPress={opt.action}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: opt.color + '18', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: opt.color + '30' }}>
+                      <Icon name={opt.icon} size={18} color={opt.color} />
+                    </View>
+                    <View>
+                      <Text style={{ color: '#f0f0ff', fontSize: 13, fontWeight: '800' }}>{opt.label}</Text>
+                      <Text style={{ color: '#8b8ba7', fontSize: 10, marginTop: 1 }}>{opt.sub}</Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: '#4b5563', fontSize: 16 }}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
+            {/* Close Button */}
             <TouchableOpacity
-              style={{ paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, backgroundColor: '#ef444415', marginTop: 10, alignItems: 'center' }}
+              style={{
+                backgroundColor: '#ef444415',
+                borderRadius: 16,
+                paddingVertical: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: '#ef444435',
+                marginTop: 4
+              }}
               onPress={() => setShowChatOptionsMenu(false)}
             >
-              <Text style={{ color: '#f87171', fontSize: 13, fontWeight: '800' }}>Cancel</Text>
+              <Text style={{ color: '#f87171', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 }}>Close Menu ✕</Text>
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
@@ -5677,6 +5961,155 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── Status Privacy Settings Modal (WhatsApp Style) ── */}
+      <Modal
+        visible={showStatusPrivacyModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStatusPrivacyModal(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(5, 5, 8, 0.88)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowStatusPrivacyModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: '#0e0e14',
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              borderWidth: 1,
+              borderColor: '#1e1e2c',
+              padding: 22,
+              gap: 16,
+              maxHeight: '85%'
+            }}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 14 }}>
+              <View style={{ gap: 2 }}>
+                <Text style={{ color: theme.primary, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>🛡️ Status Privacy</Text>
+                <Text style={{ color: theme.subText, fontSize: 12 }}>Who can see my status updates</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowStatusPrivacyModal(false)} style={{ padding: 4 }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>✕ Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Status Expiry Info Badge */}
+            <View style={{ backgroundColor: isPremiumUser ? '#1a1600' : '#12121a', padding: 14, borderRadius: 16, borderWidth: 1, borderColor: isPremiumUser ? '#ffd70040' : '#1e1e2c', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={{ fontSize: 22 }}>{isPremiumUser ? '👑' : '⏳'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: isPremiumUser ? '#ffd700' : theme.text, fontSize: 13, fontWeight: '800' }}>
+                  {isPremiumUser ? 'VOID Premium Active (72 Hours)' : 'Normal User (24 Hours)'}
+                </Text>
+                <Text style={{ color: theme.subText, fontSize: 11, marginTop: 2 }}>
+                  {isPremiumUser 
+                    ? 'Your status updates stay live for 3 Days (72h)!' 
+                    : 'Statuses automatically expire after 24 Hours. Upgrade to Premium for 3-Day lifespan.'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Privacy Radio Options */}
+            <View style={{ gap: 10 }}>
+              {[
+                { id: 'contacts', title: '👥 My Contacts', desc: 'All your matched contacts on VOID CHAT' },
+                { id: 'except', title: '🚫 My Contacts Except...', desc: 'Hide status updates from selected contacts' },
+                { id: 'only', title: '🔒 Only Share With...', desc: 'Share status updates only with selected contacts' }
+              ].map(opt => (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: statusPrivacyOption === opt.id ? `${theme.primary}15` : '#161622',
+                    padding: 14,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: statusPrivacyOption === opt.id ? theme.primary : '#1e1e2c',
+                    gap: 12
+                  }}
+                  onPress={() => setStatusPrivacyOption(opt.id)}
+                >
+                  <View style={{
+                    width: 20, height: 20, borderRadius: 10,
+                    borderWidth: 2, borderColor: statusPrivacyOption === opt.id ? theme.primary : '#4b5563',
+                    justifyContent: 'center', alignItems: 'center'
+                  }}>
+                    {statusPrivacyOption === opt.id && (
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: theme.primary }} />
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: statusPrivacyOption === opt.id ? theme.primary : theme.text, fontSize: 14, fontWeight: '800' }}>{opt.title}</Text>
+                    <Text style={{ color: theme.subText, fontSize: 11, marginTop: 2 }}>{opt.desc}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Contact Selector Checklist for Except & Only options */}
+            {(statusPrivacyOption === 'except' || statusPrivacyOption === 'only') && (
+              <View style={{ gap: 10, maxHeight: 180 }}>
+                <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '800' }}>
+                  {statusPrivacyOption === 'except' ? 'SELECT CONTACTS TO EXCLUDE:' : 'SELECT CONTACTS TO SHARE WITH:'}
+                </Text>
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 8 }}>
+                  {users.map(u => {
+                    const uId = u._id || u.id
+                    const isSelected = statusPrivacySelectedUsers.includes(uId)
+                    return (
+                      <TouchableOpacity
+                        key={uId}
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, backgroundColor: '#161622', borderRadius: 12, borderWidth: 1, borderColor: isSelected ? theme.primary : '#1e1e2c' }}
+                        onPress={() => {
+                          if (isSelected) {
+                            setStatusPrivacySelectedUsers(prev => prev.filter(id => id !== uId))
+                          } else {
+                            setStatusPrivacySelectedUsers(prev => [...prev, uId])
+                          }
+                        }}
+                      >
+                        <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>@{u.username || u.name}</Text>
+                        <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: 1, borderColor: isSelected ? theme.primary : '#4b5563', backgroundColor: isSelected ? theme.primary : 'transparent', justifyContent: 'center', alignItems: 'center' }}>
+                          {isSelected && <Text style={{ color: '#000', fontSize: 11, fontWeight: '900' }}>✓</Text>}
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Save Button */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.primary,
+                borderRadius: 16,
+                paddingVertical: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: theme.primary,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 10,
+                elevation: 6,
+                marginTop: 6
+              }}
+              onPress={() => {
+                setShowStatusPrivacyModal(false)
+                const label = statusPrivacyOption === 'contacts' ? 'My Contacts' : (statusPrivacyOption === 'except' ? 'My Contacts Except...' : 'Only Share With...')
+                Alert.alert('Status Privacy Saved ⚡', `Privacy updated: ${label}`)
+              }}
+            >
+              <Text style={{ color: '#050608', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>Save Status Privacy ⚡</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── Custom Premium Alert Modal ── */}
       <Modal
         visible={!!customAlert}
@@ -5777,12 +6210,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#060608',
-    alignSelf: 'center',
     width: '100%',
-    maxWidth: Platform.OS === 'web' ? 600 : '100%',
-    borderLeftWidth: Platform.OS === 'web' ? 1 : 0,
-    borderRightWidth: Platform.OS === 'web' ? 1 : 0,
-    borderColor: '#1a1a24',
+    maxWidth: '100%',
+    height: '100%',
+    minHeight: Platform.OS === 'web' ? '100vh' : '100%',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   splitLayoutContainer: {

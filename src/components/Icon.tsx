@@ -1,5 +1,6 @@
 import { TextStyle, Platform } from 'react-native'
 import { MaterialIcons } from '@expo/vector-icons'
+import { useEffect } from 'react'
 
 interface IconProps {
   name: string
@@ -57,30 +58,33 @@ const MAPPING: Record<string, string> = {
   group_add: 'group-add',
 }
 
-// Web Font Injection for Expo Web / Firebase Hosting
-if (Platform.OS === 'web' && typeof document !== 'undefined') {
-  if (!document.getElementById('material-icons-font-style')) {
-    const styleEl = document.createElement('style')
-    styleEl.id = 'material-icons-font-style'
-    styleEl.textContent = `
-      @font-face {
-        font-family: 'MaterialIcons';
-        src: url('https://fonts.gstatic.com/s/materialicons/v142/flKEznqBndaAsUprWYU454adab4.woff2') format('woff2');
-        font-weight: normal;
-        font-style: normal;
-      }
-      @font-face {
-        font-family: 'Material Icons';
-        src: url('https://fonts.gstatic.com/s/materialicons/v142/flKEznqBndaAsUprWYU454adab4.woff2') format('woff2');
-        font-weight: normal;
-        font-style: normal;
-      }
-    `
-    document.head.appendChild(styleEl)
-  }
-}
-
 export default function Icon({ name, size = 22, color = '#ffffff', style }: IconProps) {
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      if (!document.getElementById('material-icons-font-style')) {
+        try {
+          const styleEl = document.createElement('style')
+          styleEl.id = 'material-icons-font-style'
+          styleEl.textContent = `
+            @font-face {
+              font-family: 'MaterialIcons';
+              src: url('https://fonts.gstatic.com/s/materialicons/v142/flKEznqBndaAsUprWYU454adab4.woff2') format('woff2');
+              font-weight: normal;
+              font-style: normal;
+            }
+            @font-face {
+              font-family: 'Material Icons';
+              src: url('https://fonts.gstatic.com/s/materialicons/v142/flKEznqBndaAsUprWYU454adab4.woff2') format('woff2');
+              font-weight: normal;
+              font-style: normal;
+            }
+          `
+          document.head.appendChild(styleEl)
+        } catch (e) {}
+      }
+    }
+  }, [])
+
   const iconName = MAPPING[name] || name
   return (
     <MaterialIcons

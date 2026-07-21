@@ -24,7 +24,10 @@
         "backgroundColor": "#00000000"
       }
     },
+    "scheme": "voidchat",
     "web": {
+      "bundler": "metro",
+      "output": "static",
       "shortName": "VOID CHAT",
       "themeColor": "#000000",
       "backgroundColor": "#000000",

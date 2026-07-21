@@ -27,6 +27,7 @@ export default function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otp, setOtp] = useState('')
+  const [generatedOtpDisplay, setGeneratedOtpDisplay] = useState('')
   const [loading, setLoading] = useState(false)
   const [focused, setFocused] = useState(null)
 
@@ -47,7 +48,10 @@ export default function LoginScreen({ onLogin }) {
     setLoading(true)
     try {
       const response = await sendOtp({ email })
-      if (response.data.success) { Alert.alert('✅', response.data.message); setStep('verifyOTP') }
+      if (response.data.success) {
+        Alert.alert('📧 OTP Bhej Diya Gaya', response.data.message || '6-digit OTP code aap ke email inbox mein bhej diya gaya hai.')
+        setStep('verifyOTP')
+      }
       else Alert.alert('Error', response.data.message)
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Unable to connect to server!')
@@ -335,7 +339,7 @@ export default function LoginScreen({ onLogin }) {
             <View style={styles.infoCard}>
               <Text style={styles.infoEmoji}>📨</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoTitle}>OTP Sent</Text>
+                <Text style={styles.infoTitle}>OTP Verification</Text>
                 <Text style={styles.infoSub}>{email}</Text>
               </View>
               <Text style={{ fontSize: 22 }}>🔒</Text>
@@ -355,6 +359,14 @@ export default function LoginScreen({ onLogin }) {
               />
             </View>
 
+            <View style={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderWidth: 1, padding: 12, borderRadius: 14, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={{ fontSize: 22 }}>📧</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#f4f4f5', fontSize: 12, fontWeight: '700' }}>Email Inbox Check Karein</Text>
+                <Text style={{ color: '#a1a1aa', fontSize: 11 }}>6-digit OTP code <Text style={{ color: '#c8ff00' }}>{email}</Text> par bhej diya gaya hai.</Text>
+              </View>
+            </View>
+
             <TouchableOpacity
               style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
               onPress={handleVerifyOTP}
@@ -367,7 +379,7 @@ export default function LoginScreen({ onLogin }) {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.ghostBtn} onPress={handleSendOTP}>
-              <Text style={styles.ghostBtnText}>🔄  Resend OTP</Text>
+              <Text style={styles.ghostBtnText}>🔄  Resend OTP Email</Text>
             </TouchableOpacity>
           </View>
         )}

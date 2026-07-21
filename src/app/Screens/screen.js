@@ -4,8 +4,7 @@ import {
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { updatePreferences, getMessages, sendMessage as sendApiMessage } from '../api'
-import { RTCView } from 'react-native-webrtc'
+const RTCView = Platform.OS === 'web' ? View : (require('react-native-webrtc').RTCView || View)
 import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
 import rawWebrtcService from '../../utils/webrtcService'
 import * as ImagePicker from 'expo-image-picker'
@@ -244,12 +243,6 @@ export default function ChatScreen({
   const [showDraftPreview, setShowDraftPreview] = useState(false)
   const [previewImageUri, setPreviewImageUri] = useState(null)
 
-  const handleSendPreviewImage = async () => {
-    if (!previewImageUri) return
-    const uriToSend = previewImageUri
-    setPreviewImageUri(null)
-    await sendMediaMessage('image', uriToSend)
-  }
   // ── Voice Recording State ─────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
@@ -1492,11 +1485,75 @@ export default function ChatScreen({
 
             {msg.type === 'text' && (
               <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
-                {msg.from === 'me' ? (
-                  <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{msg.originalText || decryptMessage(msg.text)}</Text>
-                ) : (
-                  <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{decryptMessage(msg.text)}</Text>
-                )}
+                {(() => {
+                  const rawText = msg.originalText || decryptMessage(msg.text) || ''
+                  
+                  // Helper to extract image URI without showing file path text
+                  const extractImageUri = (str) => {
+                    if (!str) return null
+                    const s = String(str).trim()
+                    if (s.startsWith('[IMAGE] ')) {
+                      let clean = s.replace('[IMAGE] ', '').trim()
+                      if (clean.startsWith('🖼️ Media Attached: ')) {
+                        clean = clean.replace('🖼️ Media Attached: ', '').trim()
+                      }
+                      return clean
+                    }
+                    if (s.startsWith('🖼️ Media Attached: ')) {
+                      return s.replace('🖼️ Media Attached: ', '').trim()
+                    }
+                    if (s.startsWith('file://') || s.startsWith('content://') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image')) {
+                      return s
+                    }
+                    return null
+                  }
+
+                  const imgUri = extractImageUri(rawText)
+
+                  if (imgUri) {
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setPreviewImageUri(imgUri)}
+                        style={{ width: 220, height: 220, borderRadius: 16, overflow: 'hidden', marginVertical: 4, backgroundColor: '#050508', borderWidth: 1, borderColor: '#1e1e2d' }}
+                      >
+                        <Image source={{ uri: imgUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      </TouchableOpacity>
+                    )
+                  }
+
+                  if (rawText.startsWith('[LOCATION] ') || rawText.startsWith('📍')) {
+                    const cleanLoc = rawText.replace('[LOCATION] ', '')
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
+                        <Icon name="location_on" size={18} color="#10b981" />
+                        <Text style={[styles.msgText, { fontSize: messageTextSize, fontWeight: '700' }]}>{cleanLoc}</Text>
+                      </View>
+                    )
+                  }
+
+                  if (rawText.startsWith('[CONTACT] ') || rawText.startsWith('👤')) {
+                    const cleanContact = rawText.replace('[CONTACT] ', '')
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
+                        <Icon name="person" size={18} color="#f59e0b" />
+                        <Text style={[styles.msgText, { fontSize: messageTextSize, fontWeight: '700' }]}>{cleanContact}</Text>
+                      </View>
+                    )
+                  }
+
+                  if (rawText.startsWith('[DOCUMENT] ') || rawText.startsWith('📄')) {
+                    const cleanDoc = rawText.replace('[DOCUMENT] ', '')
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
+                        <Icon name="description" size={18} color="#8b5cf6" />
+                        <Text style={[styles.msgText, { fontSize: messageTextSize, fontWeight: '700' }]}>{cleanDoc}</Text>
+                      </View>
+                    )
+                  }
+
+                  return <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{rawText}</Text>
+                })()}
                 <View style={styles.msgMeta}>
                   <Text style={styles.msgTime}>{msg.time}</Text>
                   {msg.from === 'me' && (
