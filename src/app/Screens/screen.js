@@ -17,7 +17,7 @@ const MapView = () => null;
 const Marker = () => null;
 import * as DocumentPicker from 'expo-document-picker'
 import * as Contacts from 'expo-contacts'
-import { sendMessage as sendApiMessage, getMessages, deleteMessage } from '../api'
+import { sendMessage as sendApiMessage, getMessages, deleteMessage, uploadImageFile } from '../api'
 
 const webrtcService = Platform.OS === 'web' ? new Proxy({}, {
   get: (target, prop) => {
@@ -73,6 +73,7 @@ export default function ChatScreen({
   onAddGroupMember,
   isDayMode = false,
   activeChats = [],
+  onCallStateChange,
 }) {
   const theme = {
     bg: isDayMode ? '#f4f4f5' : '#060608',
@@ -81,6 +82,20 @@ export default function ChatScreen({
     subText: isDayMode ? '#71717a' : '#8b8ba7',
     border: isDayMode ? '#e4e4e7' : '#1e1e2c',
     primary: nameColor || '#c8ff00'
+  }
+
+  const renderTicks = (msg) => {
+    if (msg.from !== 'me') return null
+    const isRead = msg.isRead === true
+    const isDelivered = msg.isDelivered === true || isRead
+    const tickColor = isRead ? (theme.primary || '#c8ff00') : '#8b8ba7'
+    const tickText = isDelivered ? '✓✓' : '✓'
+    
+    return (
+      <Text style={[styles.msgStatus, { color: tickColor, fontWeight: '800' }]}>
+        {tickText}
+      </Text>
+    )
   }
 
   const [customAlert, setCustomAlert] = useState(null)
@@ -113,28 +128,34 @@ export default function ChatScreen({
           const senderIdStr = typeof m.sender === 'object' ? (m.sender?._id || m.sender?.id) : m.sender
           const isThem = String(senderIdStr) === String(targetId)
           
+          const decrypted = decryptMessage(content) || content
+          
           let type = m.messageType || 'text'
-          let parsedContent = content
+          let parsedContent = decrypted
           let contactInfo = null
 
-          if (content.startsWith('[IMAGE] ')) {
+          if (decrypted.startsWith('[IMAGE] ')) {
             type = 'image'
-            parsedContent = content.replace('[IMAGE] ', '')
-          } else if (content.startsWith('[LOCATION] ')) {
+            let clean = decrypted.replace('[IMAGE] ', '')
+            if (clean.startsWith('🖼️ Media Attached: ')) {
+              clean = clean.replace('🖼️ Media Attached: ', '')
+            }
+            parsedContent = clean.trim()
+          } else if (decrypted.startsWith('[LOCATION] ')) {
             type = 'location'
-            parsedContent = content.replace('[LOCATION] ', '')
-          } else if (content.startsWith('[CONTACT] ')) {
+            parsedContent = decrypted.replace('[LOCATION] ', '')
+          } else if (decrypted.startsWith('[CONTACT] ')) {
             type = 'contact'
-            parsedContent = content.replace('[CONTACT] ', '')
+            parsedContent = decrypted.replace('[CONTACT] ', '')
             const nameMatch = parsedContent.match(/Contact: ([^(]+)/) || parsedContent.match(/👤 Contact: ([^(]+)/)
             const phoneMatch = parsedContent.match(/\(([^)]+)\)/)
             contactInfo = {
               name: nameMatch ? nameMatch[1].trim() : 'Contact',
               phone: phoneMatch ? phoneMatch[1].trim() : parsedContent
             }
-          } else if (content.startsWith('[DOCUMENT] ')) {
+          } else if (decrypted.startsWith('[DOCUMENT] ')) {
             type = 'document'
-            parsedContent = content.replace('[DOCUMENT] ', '')
+            parsedContent = decrypted.replace('[DOCUMENT] ', '')
           }
 
           return {
@@ -220,6 +241,11 @@ export default function ChatScreen({
   const [remoteStream, setRemoteStream] = useState(null)
   const [incomingCall, setIncomingCall] = useState(null) // { from, fromName, offer, callType }
   const [callStatus, setCallStatus] = useState('idle') // idle | calling | ringing | connected | ended
+  const callingTimeoutRef = useRef(null)
+
+  useEffect(() => {
+    onCallStateChange?.(onCall)
+  }, [onCall, onCallStateChange])
   
   // Permission System
   const [otherUserPermissions, setOtherUserPermissions] = useState({
@@ -244,6 +270,7 @@ export default function ChatScreen({
   const [selectedDraft, setSelectedDraft] = useState(null)
   const [showDraftPreview, setShowDraftPreview] = useState(false)
   const [previewImageUri, setPreviewImageUri] = useState(null)
+  const [viewerImageUri, setViewerImageUri] = useState(null)
 
   // ── Voice Recording State ─────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false)
@@ -285,29 +312,49 @@ export default function ChatScreen({
 
   // ── WebRTC Service Setup ────────────────────────────────────
   useEffect(() => {
-    // contact?.userId real user ID hoga (e.g. MongoDB _id)
     const myUserId = contact?.myUserId || 'guest-' + Date.now()
 
     webrtcService.connect(myUserId, contact?.myUsername || '')
 
-    // Incoming call aaye toh
     webrtcService.onIncomingCall = ({ from, fromName, offer, callType: ct }) => {
       setIncomingCall({ from, fromName, offer, callType: ct })
       setCallStatus('ringing')
     }
 
-    // Call connected
     webrtcService.onCallAccepted = () => {
+      if (callingTimeoutRef.current) {
+        clearTimeout(callingTimeoutRef.current)
+        callingTimeoutRef.current = null
+      }
       setCallStatus('connected')
     }
 
-    // Remote video stream aaya
+    webrtcService.onCallRinging = () => {
+      if (callingTimeoutRef.current) {
+        clearTimeout(callingTimeoutRef.current)
+        callingTimeoutRef.current = null
+      }
+      setCallStatus('ringing')
+    }
+
+    webrtcService.onCalleeOffline = () => {
+      setCallStatus('calling') // Keep showing "Connecting..."
+      if (callingTimeoutRef.current) clearTimeout(callingTimeoutRef.current)
+      callingTimeoutRef.current = setTimeout(() => {
+        Alert.alert('📵 Unavailable', `${contact?.name || 'User'} is currently offline and unavailable.`)
+        endCall()
+      }, 15000)
+    }
+
     webrtcService.onRemoteStream = (stream) => {
       setRemoteStream(stream)
     }
 
-    // Dusri taraf se reject
     webrtcService.onCallRejected = () => {
+      if (callingTimeoutRef.current) {
+        clearTimeout(callingTimeoutRef.current)
+        callingTimeoutRef.current = null
+      }
       Alert.alert('📵 Call Rejected', `${contact?.name} ne call reject kar diya`)
       setOnCall(false)
       setLocalStream(null)
@@ -315,8 +362,11 @@ export default function ChatScreen({
       setCallStatus('idle')
     }
 
-    // Call khatam
     webrtcService.onCallEnded = () => {
+      if (callingTimeoutRef.current) {
+        clearTimeout(callingTimeoutRef.current)
+        callingTimeoutRef.current = null
+      }
       setOnCall(false)
       setLocalStream(null)
       setRemoteStream(null)
@@ -325,15 +375,21 @@ export default function ChatScreen({
       setCallDuration(0)
     }
 
-    // Dusra user offline
     webrtcService.onCallUnavailable = () => {
+      if (callingTimeoutRef.current) {
+        clearTimeout(callingTimeoutRef.current)
+        callingTimeoutRef.current = null
+      }
       Alert.alert('📵 Unavailable', `${contact?.name} abhi available nahi`)
       setOnCall(false)
       setCallStatus('idle')
     }
 
     return () => {
-      webrtcService.disconnect()
+      // Prevent disconnecting socket if call is active in the background
+      if (!webrtcService.peerConnection) {
+        webrtcService.disconnect()
+      }
     }
   }, [])
 
@@ -718,10 +774,12 @@ export default function ChatScreen({
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.9,
+        base64: true,
       })
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPreviewImageUri(result.assets[0].uri)
+        const base64Uri = `data:image/jpeg;base64,${result.assets[0].base64}`
+        setPreviewImageUri(base64Uri)
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to open camera.')
@@ -738,10 +796,12 @@ export default function ChatScreen({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.9,
+        base64: true,
       })
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPreviewImageUri(result.assets[0].uri)
+        const base64Uri = `data:image/jpeg;base64,${result.assets[0].base64}`
+        setPreviewImageUri(base64Uri)
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to open gallery.')
@@ -770,7 +830,15 @@ export default function ChatScreen({
     if (!previewImageUri) return
     const uri = previewImageUri
     setPreviewImageUri(null)
-    await sendMediaMessage('image', `🖼️ Media Attached: ${uri}`)
+    
+    let finalUri = uri
+    if (uri.startsWith('data:image')) {
+      const uploadUrl = await uploadImageFile(uri)
+      if (uploadUrl) {
+        finalUri = uploadUrl
+      }
+    }
+    await sendMediaMessage('image', `🖼️ Media Attached: ${finalUri}`)
   }
 
   const sendPhoto = async () => {
@@ -987,6 +1055,10 @@ export default function ChatScreen({
 
   // ── End Call (Real) ──────────────────────────────────────────
   const endCall = () => {
+    if (callingTimeoutRef.current) {
+      clearTimeout(callingTimeoutRef.current)
+      callingTimeoutRef.current = null
+    }
     webrtcService.endCall()
     setOnCall(false)
     setCallType(null)
@@ -1086,10 +1158,14 @@ export default function ChatScreen({
           style={styles.contactInfo}
           onPress={() => setShowChatMenuModal(true)}
         >
-          <View style={[styles.avatar, { backgroundColor: isDayMode ? '#e4e4e7' : '#27272a' }]}>
-            <Text style={[styles.avatarText, { color: theme.text }]}>
-              {contact?.avatar || contact?.name?.[0] || 'U'}
-            </Text>
+          <View style={[styles.avatar, { backgroundColor: isDayMode ? '#e4e4e7' : '#27272a', overflow: 'hidden' }]}>
+            {contact?.avatar && (contact.avatar.startsWith('http') || contact.avatar.startsWith('data:') || contact.avatar.startsWith('file:') || contact.avatar.length > 5) ? (
+              <Image source={{ uri: contact.avatar }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+            ) : (
+              <Text style={[styles.avatarText, { color: theme.text }]}>
+                {contact?.avatar || contact?.name?.[0] || 'U'}
+              </Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1237,21 +1313,27 @@ export default function ChatScreen({
 
           <View style={styles.callContainer}>
             {/* Avatar & Info (voice call ya connecting state) */}
-            {(callType === 'voice' || callStatus === 'calling') && (
+            {(callType === 'voice' || callStatus === 'calling' || callStatus === 'ringing') && (
               <View style={styles.callInfo}>
-                <View style={styles.callAvatar}>
-                  <Text style={styles.callAvatarText}>
-                    {contact?.name?.[0] || 'U'}
-                  </Text>
+                <View style={[styles.callAvatar, { overflow: 'hidden' }]}>
+                  {contact?.avatar && (contact.avatar.startsWith('http') || contact.avatar.startsWith('data:') || contact.avatar.startsWith('file:') || contact.avatar.length > 5) ? (
+                    <Image source={{ uri: contact.avatar }} style={{ width: 90, height: 90, borderRadius: 45 }} />
+                  ) : (
+                    <Text style={styles.callAvatarText}>
+                      {contact?.name?.[0] || 'U'}
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.callDetails}>
                   <Text style={styles.callName}>{contact?.name || 'User'}</Text>
                   <Text style={styles.callType}>
                     {callStatus === 'calling'
                       ? '⏳ Connecting...'
-                      : callType === 'voice'
-                        ? '🎤 Voice Call'
-                        : '📹 Video Call'}
+                      : callStatus === 'ringing'
+                        ? '🔔 Ringing...'
+                        : callType === 'voice'
+                          ? '🎤 Voice Call'
+                          : '📹 Video Call'}
                   </Text>
                   <Text style={styles.callDuration}>
                     {callStatus === 'connected' ? formatCallDuration(callDuration) : ''}
@@ -1347,6 +1429,7 @@ export default function ChatScreen({
             {msg.type === 'image' && (
               <TouchableOpacity 
                 activeOpacity={0.9} 
+                onPress={() => setViewerImageUri(msg.content)}
                 onLongPress={() => handleMsgLongPress(msg)} 
                 style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem, { padding: 4, overflow: 'hidden' }]}
               >
@@ -1392,7 +1475,7 @@ export default function ChatScreen({
                 <View style={styles.msgMeta}>
                   {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                  {renderTicks(msg)}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
               </TouchableOpacity>
@@ -1433,7 +1516,7 @@ export default function ChatScreen({
                   <View style={styles.msgMeta}>
                     {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                     <Text style={styles.msgTime}>{msg.time}</Text>
-                    {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                    {renderTicks(msg)}
                     <Text style={styles.msgLock}>🔒</Text>
                   </View>
                 </TouchableOpacity>
@@ -1461,7 +1544,7 @@ export default function ChatScreen({
                 <View style={styles.msgMeta}>
                   {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                  {renderTicks(msg)}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
               </TouchableOpacity>
@@ -1501,7 +1584,7 @@ export default function ChatScreen({
                   <View style={styles.msgMeta}>
                     {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                     <Text style={styles.msgTime}>{msg.time}</Text>
-                    {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                    {renderTicks(msg)}
                     <Text style={styles.msgLock}>🔒</Text>
                   </View>
                 </TouchableOpacity>
@@ -1583,7 +1666,7 @@ export default function ChatScreen({
                 <View style={styles.msgMeta}>
                   {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
                   <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                  {renderTicks(msg)}
                   <Text style={styles.msgLock}>🔒</Text>
                 </View>
               </TouchableOpacity>
@@ -1620,7 +1703,7 @@ export default function ChatScreen({
                     return (
                       <TouchableOpacity
                         activeOpacity={0.9}
-                        onPress={() => setPreviewImageUri(imgUri)}
+                        onPress={() => setViewerImageUri(imgUri)}
                         style={{ width: 220, height: 220, borderRadius: 16, overflow: 'hidden', marginVertical: 4, backgroundColor: '#050508', borderWidth: 1, borderColor: '#1e1e2d' }}
                       >
                         <Image source={{ uri: imgUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
@@ -1662,9 +1745,7 @@ export default function ChatScreen({
                 })()}
                 <View style={styles.msgMeta}>
                   <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && (
-                    <Text style={styles.msgStatus}>✓✓</Text>
-                  )}
+                  {renderTicks(msg)}
                   <Text style={styles.msgLock}>🔐</Text>
                 </View>
               </View>
@@ -2396,6 +2477,34 @@ export default function ChatScreen({
                 )
               })}
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Full-Screen Image Viewer Modal ── */}
+      <Modal
+        visible={!!viewerImageUri}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setViewerImageUri(null)}
+      >
+        <TouchableOpacity 
+          activeOpacity={1} 
+          style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.95)', justifyContent: 'center', alignItems: 'center' }}
+          onPress={() => setViewerImageUri(null)}
+        >
+          {viewerImageUri ? (
+            <Image 
+              source={{ uri: viewerImageUri }} 
+              style={{ width: '100%', height: '80%' }} 
+              resizeMode="contain" 
+            />
+          ) : null}
+          <TouchableOpacity 
+            style={{ position: 'absolute', top: 40, right: 20, padding: 12, backgroundColor: '#ffffff20', borderRadius: 20 }}
+            onPress={() => setViewerImageUri(null)}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>✕ Close</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

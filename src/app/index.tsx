@@ -16,9 +16,32 @@ import ReferScreen from './Screens/ReferScreen'
 import Icon from '../components/Icon'
 import * as Contacts from 'expo-contacts'
 import * as ImagePicker from 'expo-image-picker'
-import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost } from './api'
+import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost, uploadImageFile } from './api'
 import FakeShutdownOverlay from './antitheft/FakeShutdownOverlay'
 import { saveGhostSettings, loadGhostSettings, hashPin } from './antitheft/AntiTheftService'
+
+const UserAvatar = ({ avatar, size = 40, style, textStyle, fallback = '👤' }) => {
+  const isImg = avatar && (
+    avatar.startsWith('http') || 
+    avatar.startsWith('data:') || 
+    avatar.startsWith('file:') || 
+    avatar.length > 5
+  )
+  if (isImg) {
+    return (
+      <Image 
+        source={{ uri: avatar }} 
+        style={[{ width: size, height: size, borderRadius: size / 2 }, style]} 
+        resizeMode="cover"
+      />
+    )
+  }
+  return (
+    <Text style={textStyle}>
+      {avatar || fallback}
+    </Text>
+  )
+}
 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions()
@@ -85,6 +108,8 @@ export default function App() {
   const [pkrValue, setPkrValue] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [showChat, setShowChat] = useState(false)
+  const [isCallActiveGlobally, setCallActiveGlobally] = useState(false)
+  const [activeCallContact, setActiveCallContact] = useState(null)
   const [showNotifs, setShowNotifs] = useState(false)
   const [showWallet, setShowWallet] = useState(false)
   const [showStarredModal, setShowStarredModal] = useState(false)
@@ -762,7 +787,8 @@ export default function App() {
               setCurrentUser(optimUser)
               await updatePreferences({ activeChatIds: updatedList })
               
-              let localMsgs = await AsyncStorage.getItem('@void_messages')
+              const myId = currentUser?._id || currentUser?.id
+              let localMsgs = await AsyncStorage.getItem('@void_messages_' + myId)
               if (localMsgs) {
                 let parsed = JSON.parse(localMsgs)
                 parsed = parsed.filter(m => {
@@ -770,7 +796,7 @@ export default function App() {
                   const r = typeof m.receiver === 'object' ? (m.receiver?._id || m.receiver?.id) : m.receiver
                   return !(String(s) === String(chatId) || String(r) === String(chatId))
                 })
-                await AsyncStorage.setItem('@void_messages', JSON.stringify(parsed))
+                await AsyncStorage.setItem('@void_messages_' + myId, JSON.stringify(parsed))
               }
 
               try {
@@ -827,6 +853,28 @@ export default function App() {
       parsed[chatId] = newAvatar
       await AsyncStorage.setItem('chat_avatars', JSON.stringify(parsed))
     } catch (e) {}
+  }
+
+  const handlePickAvatarFromGallery = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Denied', 'Gallery access is required to choose a profile picture.')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.9,
+        base64: true,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const base64Uri = `data:image/jpeg;base64,${result.assets[0].base64}`
+        setTempAvatar(base64Uri)
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to pick image from gallery.')
+    }
   }
 
   const handleCreateGroup = async () => {
@@ -928,11 +976,20 @@ export default function App() {
 
       // Sync globally (AsyncStorage '@void_current_user' and Cloud Firestore)
       const fullname = `${firstName || ''} ${lastName || ''}`.trim() || usernameText || 'User'
+      
+      let finalAvatar = tempAvatar || '💬'
+      if (tempAvatar && tempAvatar.startsWith('data:image')) {
+        const uploadUrl = await uploadImageFile(tempAvatar)
+        if (uploadUrl) {
+          finalAvatar = uploadUrl
+        }
+      }
+
       const updatedUserFields = {
         name: fullname,
         username: usernameText || 'user',
         bio: bioText || '',
-        avatar: tempAvatar || '💬'
+        avatar: finalAvatar
       }
 
       const res = await updatePreferences(updatedUserFields)
@@ -1016,7 +1073,7 @@ export default function App() {
         username: u.username,
         phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
         color: u.isPremium ? '#ffc800' : '#10b981',
-        avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+        avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
         streak: u.streakDays || 0,
         unread: 0
       }))
@@ -1221,6 +1278,7 @@ export default function App() {
     try {
       const res = await dailyLogin()
       Alert.alert('🎉 Daily Bonus!', res.data.message)
+      loadBalance()
     } catch (e) {}
   }
 
@@ -1762,10 +1820,13 @@ export default function App() {
                   setSocialSearchQuery('')
                 }}
               >
-                <View style={[styles.chatAvatar, { backgroundColor: theme.primary }]}>
-                  <Text style={[styles.avatarText, { color: '#000' }]}>
-                    {(user.username || user.name || 'U')[0].toUpperCase()}
-                  </Text>
+                <View style={[styles.chatAvatar, { backgroundColor: theme.primary, overflow: 'hidden' }]}>
+                  <UserAvatar 
+                    avatar={user.avatar} 
+                    size={40} 
+                    textStyle={[styles.avatarText, { color: '#000' }]} 
+                    fallback={(user.username || user.name || 'U')[0].toUpperCase()} 
+                  />
                 </View>
                 <View style={styles.chatInfo}>
                   <Text style={[styles.chatName, { color: theme.text }]}>@{user.username || user.name}</Text>
@@ -1795,7 +1856,8 @@ export default function App() {
                   style={[styles.avatar, {
                     backgroundColor: post.isAnonymous ? '#374151' : (isPostAuthorPremium(post) ? '#ffd700' : '#6366f1'),
                     borderWidth: (isPostAuthorPremium(post) && !post.isAnonymous) ? 2 : 0,
-                    borderColor: '#ffd700'
+                    borderColor: '#ffd700',
+                    overflow: 'hidden'
                   }]}
                   onPress={() => {
                     if (post.isAnonymous) {
@@ -1805,10 +1867,13 @@ export default function App() {
                     }
                   }}
                 >
-                  <Text style={[styles.avatarText, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#050608', fontWeight: '900' }]}>
-                    {post.isAnonymous ? '?' :
-                      post.user?.username?.[0]?.toUpperCase() || 'U'}
-                  </Text>
+                  {(!post.isAnonymous && post.user?.avatar && (post.user.avatar.startsWith('http') || post.user.avatar.startsWith('data:') || post.user.avatar.startsWith('file:') || post.user.avatar.length > 5)) ? (
+                    <Image source={{ uri: post.user.avatar }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                  ) : (
+                    <Text style={[styles.avatarText, (isPostAuthorPremium(post) && !post.isAnonymous) && { color: '#050608', fontWeight: '900' }]}>
+                      {post.isAnonymous ? '?' : post.user?.username?.[0]?.toUpperCase() || 'U'}
+                    </Text>
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.postMeta}
@@ -2103,7 +2168,7 @@ export default function App() {
                             username: u.username,
                             phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
                             color: '#c8ff00',
-                            avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+                            avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
                             streak: 0,
                             unread: 0
                           }
@@ -2111,10 +2176,13 @@ export default function App() {
                           setInboxSearchQuery('')
                         }}
                       >
-                        <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
-                          <Text style={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]}>
-                            {(u.username || u.name || 'U')[0].toUpperCase()}
-                          </Text>
+                        <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
+                          <UserAvatar 
+                            avatar={u.avatar} 
+                            size={44} 
+                            textStyle={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]} 
+                            fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
+                          />
                         </View>
                         <View style={styles.chatInfo}>
                           <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
@@ -2144,8 +2212,13 @@ export default function App() {
                   }}
                 >
                   <View style={{ position: 'relative' }}>
-                    <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
-                      <Text style={[styles.avatarText, { color: '#ffffff' }]}>{chat.avatar || chat.name[0]}</Text>
+                    <View style={[styles.chatAvatar, { backgroundColor: chat.color, overflow: 'hidden' }]}>
+                      <UserAvatar 
+                        avatar={chat.avatar} 
+                        size={40} 
+                        textStyle={[styles.avatarText, { color: '#ffffff' }]} 
+                        fallback={chat.name[0]} 
+                      />
                     </View>
                     {chat.streak > 0 && (
                       <View style={styles.streakBadge}>
@@ -2274,8 +2347,13 @@ export default function App() {
                     {/* Status Header with Delete Button */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' }]}>
-                          <Text style={[styles.avatarText, { fontSize: 14 }]}>{status.avatar}</Text>
+                        <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
+                          <UserAvatar 
+                            avatar={status.avatar} 
+                            size={40} 
+                            textStyle={[styles.avatarText, { fontSize: 14 }]} 
+                            fallback="👤" 
+                          />
                         </View>
                         <View>
                           <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
@@ -2385,7 +2463,7 @@ export default function App() {
                         username: u.username,
                         phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
                         color: '#6366f1',
-                        avatar: (u.username || u.name || 'U')[0].toUpperCase(),
+                        avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
                         streak: 0,
                         unread: 0
                       }
@@ -2393,10 +2471,13 @@ export default function App() {
                       setInboxSearchQuery('')
                     }}
                   >
-                    <View style={[styles.chatAvatar, { backgroundColor: '#6366f1', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }]}>
-                      <Text style={[styles.avatarText, { color: '#fff', fontSize: 16, fontWeight: '900' }]}>
-                        {(u.username || u.name || 'U')[0].toUpperCase()}
-                      </Text>
+                    <View style={[styles.chatAvatar, { backgroundColor: '#6366f1', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
+                      <UserAvatar 
+                        avatar={u.avatar} 
+                        size={44} 
+                        textStyle={[styles.avatarText, { color: '#fff', fontSize: 16, fontWeight: '900' }]} 
+                        fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
+                      />
                     </View>
                     <View style={styles.chatInfo}>
                       <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
@@ -3088,27 +3169,77 @@ export default function App() {
 
       {/* Chat Modal */}
       <Modal
-        visible={!!showChat}
-        animationType="slide"
+        visible={!!showChat || isCallActiveGlobally}
+        animationType={showChat ? "slide" : "none"}
+        transparent={!showChat}
         onRequestClose={() => setShowChat(false)}
       >
-        <ChatScreen
-          contact={{ ...showChat, myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
-          activeChats={chatModeChats}
-          onBack={() => setShowChat(false)}
-          onViewProfile={(profile) => setSelectedUserProfile(profile)}
-          blockedUsers={currentUserBlockedList}
-          messageTextSize={messageTextSize}
-          chatWallpaper={chatWallpaper}
-          nameColor={nameColor}
-          onBlockToggle={(id) => handleToggleBlock(id, '')}
-          onLockToggle={handleLockToggle}
-          onChangeAvatar={handleChangeAvatar}
-          isLocked={secretChatIds.includes(showChat?.id)}
-          onAddGroupMember={handleAddGroupMember}
-          isDayMode={isDayMode}
-        />
+        <View style={showChat ? { flex: 1, backgroundColor: '#000' } : { position: 'absolute', width: 0, height: 0, opacity: 0 }}>
+          {(!!showChat || (isCallActiveGlobally && activeCallContact)) && (
+            <ChatScreen
+              contact={{ ...(showChat || activeCallContact), myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
+              activeChats={chatModeChats}
+              onBack={() => setShowChat(false)}
+              onViewProfile={(profile) => setSelectedUserProfile(profile)}
+              blockedUsers={currentUserBlockedList}
+              messageTextSize={messageTextSize}
+              chatWallpaper={chatWallpaper}
+              nameColor={nameColor}
+              onBlockToggle={(id) => handleToggleBlock(id, '')}
+              onLockToggle={handleLockToggle}
+              onChangeAvatar={handleChangeAvatar}
+              isLocked={secretChatIds.includes((showChat || activeCallContact)?.id)}
+              onAddGroupMember={handleAddGroupMember}
+              isDayMode={isDayMode}
+              onCallStateChange={(active) => {
+                setCallActiveGlobally(active)
+                if (active) {
+                  setActiveCallContact(showChat || activeCallContact)
+                } else {
+                  setActiveCallContact(null)
+                }
+              }}
+            />
+          )}
+        </View>
       </Modal>
+
+      {/* Floating Active Call Banner */}
+      {!showChat && isCallActiveGlobally && activeCallContact && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: Platform.OS === 'ios' ? 50 : 20,
+            left: 12,
+            right: 12,
+            backgroundColor: '#10b981',
+            borderRadius: 12,
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            zIndex: 9999,
+            shadowColor: '#10b981',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 6,
+            elevation: 8,
+          }}
+          onPress={() => setShowChat(activeCallContact)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 18 }}>📞</Text>
+            <View>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>Active Call</Text>
+              <Text style={{ color: '#d1fae5', fontSize: 11, marginTop: 1 }}>
+                Talking with @{activeCallContact.username || activeCallContact.name}
+              </Text>
+            </View>
+          </View>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Tap to Return ›</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Notifications Modal */}
       <Modal visible={showNotifs} animationType="slide" onRequestClose={() => setShowNotifs(false)}>
@@ -3371,11 +3502,16 @@ export default function App() {
                   borderColor: theme.border,
                   justifyContent: 'center',
                   alignItems: 'center',
-                  position: 'relative'
+                  position: 'relative',
+                  overflow: 'hidden'
                 }}
                 onPress={() => setShowAvatarPicker(true)}
               >
-                <Text style={{ fontSize: 36 }}>{tempAvatar || '💬'}</Text>
+                {tempAvatar && (tempAvatar.startsWith('http') || tempAvatar.startsWith('data:') || tempAvatar.startsWith('file:') || tempAvatar.length > 5) ? (
+                  <Image source={{ uri: tempAvatar }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+                ) : (
+                  <Text style={{ fontSize: 36 }}>{tempAvatar || '💬'}</Text>
+                )}
                 <View style={{
                   position: 'absolute',
                   bottom: 0,
@@ -3387,7 +3523,8 @@ export default function App() {
                   justifyContent: 'center',
                   alignItems: 'center',
                   borderWidth: 2,
-                  borderColor: isDayMode ? '#ffffff' : '#0e0e14'
+                  borderColor: isDayMode ? '#ffffff' : '#0e0e14',
+                  zIndex: 10
                 }}>
                   <Icon name="photo_camera" size={12} color="#000000" />
                 </View>
@@ -4267,7 +4404,20 @@ export default function App() {
                 ghostSetupStep === 0 ? (
                   <TouchableOpacity
                     style={{ backgroundColor: '#c8ff0018', borderWidth: 1, borderColor: '#c8ff0040', borderRadius: 12, padding: 14, alignItems: 'center' }}
-                    onPress={() => setGhostSetupStep(1)}
+                    onPress={() => {
+                      if (!isPremiumUser) {
+                        Alert.alert(
+                          '👑 VOID Premium Required',
+                          'Ghost Mode (Anti-Theft) is a premium-only feature. Upgrade to VOID Premium to unlock silent tracking, fake shutdowns, and intruder selfie captures!',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Upgrade to Premium 👑', onPress: () => { setShowPrivacySettings(false); setShowPremiumModal(true); } }
+                          ]
+                        )
+                      } else {
+                        setGhostSetupStep(1)
+                      }
+                    }}
                   >
                     <Text style={{ color: '#c8ff00', fontWeight: '800', fontSize: 14 }}>⚙️ Set Up Ghost Mode</Text>
                   </TouchableOpacity>
@@ -4352,9 +4502,20 @@ export default function App() {
                       <TouchableOpacity
                         style={{ backgroundColor: '#c8ff00', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}
                         onPress={() => {
-                          setGhostModeActive(true)
-                          setShowPrivacySettings(false)
-                          Alert.alert('👻 Ghost Mode ON!', 'Fake shutdown activated. Track your phone at:\nazaad-app.web.app/track.html')
+                          if (!isPremiumUser) {
+                            Alert.alert(
+                              '👑 VOID Premium Required',
+                              'Ghost Mode (Anti-Theft) is a premium-only feature. Please upgrade to VOID Premium to activate.',
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Upgrade to Premium 👑', onPress: () => { setShowPrivacySettings(false); setShowPremiumModal(true); } }
+                              ]
+                            )
+                          } else {
+                            setGhostModeActive(true)
+                            setShowPrivacySettings(false)
+                            Alert.alert('👻 Ghost Mode ON!', 'Fake shutdown activated. Track your phone at:\nazaad-app.web.app/track.html')
+                          }
                         }}
                       >
                         <Text style={{ color: '#000', fontWeight: '800', fontSize: 12 }}>Activate Now</Text>
@@ -6088,6 +6249,22 @@ export default function App() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Choose from Gallery */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: isDayMode ? '#f4f4f5' : '#161622',
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: 14,
+                paddingVertical: 12,
+                alignItems: 'center',
+                marginTop: 6
+              }}
+              onPress={handlePickAvatarFromGallery}
+            >
+              <Text style={{ color: theme.primary, fontWeight: '800', fontSize: 14 }}>🖼️ Choose from Gallery</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={{

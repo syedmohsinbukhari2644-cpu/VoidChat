@@ -34,6 +34,8 @@ class WebRTCService {
     this.onCallEnded      = null  // ()
     this.onRemoteStream   = null  // (stream)
     this.onCallUnavailable= null  // (userId)
+    this.onCallRinging    = null  // ()
+    this.onCalleeOffline  = null  // ()
   }
 
   // ── Socket Connect ─────────────────────────────────────────
@@ -104,6 +106,14 @@ class WebRTCService {
     this.socket.on('call-unavailable', ({ userId }) => {
       this.onCallUnavailable?.(userId)
       this.cleanupCall()
+    })
+
+    this.socket.on('call-ringing', () => {
+      this.onCallRinging?.()
+    })
+
+    this.socket.on('callee-offline', () => {
+      this.onCalleeOffline?.()
     })
   }
 

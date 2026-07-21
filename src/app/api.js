@@ -107,7 +107,7 @@ const getStoredData = async (key, defaultValue) => {
 const setStoredData = async (key, value) => {
   try {
     await AsyncStorage.setItem(key, JSON.stringify(value))
-  } catch (e) {}
+  } catch (e) { }
 }
 
 // Token management
@@ -130,7 +130,7 @@ export const loadSavedToken = async () => {
       currentAuthToken = token
       return token
     }
-  } catch (e) {}
+  } catch (e) { }
   return null
 }
 
@@ -151,11 +151,11 @@ const getUpdateMaskParams = (fields) => {
 export const registerUser = async (data) => {
   const allUsersRes = await getUsers()
   const currentUsers = allUsersRes.data.users || []
-  const existing = currentUsers.find(u => 
+  const existing = currentUsers.find(u =>
     (u.email && u.email.toLowerCase() === data.email?.toLowerCase()) ||
     (u.username && u.username.toLowerCase() === data.username?.toLowerCase())
   )
-  
+
   if (existing) {
     throw new Error('User with this email or username already exists!')
   }
@@ -221,8 +221,8 @@ export const loginUser = async (data) => {
   const allUsersRes = await getUsers()
   const users = allUsersRes.data.users || []
   const user = users.find(
-    u => (u.email && u.email.toLowerCase() === data.email?.toLowerCase()) || 
-         (u.username && u.username.toLowerCase() === data.email?.toLowerCase())
+    u => (u.email && u.email.toLowerCase() === data.email?.toLowerCase()) ||
+      (u.username && u.username.toLowerCase() === data.email?.toLowerCase())
   )
 
   if (!user) {
@@ -250,6 +250,15 @@ export const loginUser = async (data) => {
 export const getMe = async () => {
   const currentUser = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   if (currentUser && currentUser._id) {
+    if (currentUser.isPremium && currentUser.premiumExpiry) {
+      if (new Date() > new Date(currentUser.premiumExpiry)) {
+        currentUser.isPremium = false
+        currentUser.premiumExpiry = null
+        await setStoredData('@void_current_user', currentUser)
+        await setStoredData('@void_ghost_settings', { enabled: false, pin: '', emergencyContact: '', userId: null })
+      }
+    }
+
     try {
       const docUrl = `${FIRESTORE_USERS_URL}/${currentUser._id}`
       const res = await fetch(docUrl)
@@ -257,6 +266,30 @@ export const getMe = async () => {
         const doc = await res.json()
         if (doc && doc.fields) {
           const fields = doc.fields
+
+          let isPremium = fields.isPremium?.booleanValue !== undefined ? fields.isPremium.booleanValue : !!currentUser.isPremium
+          let premiumExpiry = fields.premiumExpiry?.stringValue || currentUser.premiumExpiry || null
+
+          if (isPremium && premiumExpiry) {
+            if (new Date() > new Date(premiumExpiry)) {
+              isPremium = false
+              premiumExpiry = null
+              await setStoredData('@void_ghost_settings', { enabled: false, pin: '', emergencyContact: '', userId: null })
+
+              try {
+                const patchFields = {
+                  isPremium: { booleanValue: false },
+                  premiumExpiry: { stringValue: '' }
+                }
+                await fetch(`${FIRESTORE_USERS_URL}/${currentUser._id}?updateMask.fieldPaths=isPremium&updateMask.fieldPaths=premiumExpiry`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fields: patchFields })
+                })
+              } catch (e) { }
+            }
+          }
+
           const updatedUser = {
             ...currentUser,
             name: fields.name?.stringValue || currentUser.name || 'User',
@@ -264,25 +297,27 @@ export const getMe = async () => {
             avatar: fields.avatar?.stringValue || currentUser.avatar || '💬',
             bio: fields.bio?.stringValue || currentUser.bio || '',
             voidBalance: fields.voidBalance?.integerValue ? Number(fields.voidBalance.integerValue) : (currentUser.voidBalance || 500),
-            isPremium: fields.isPremium?.booleanValue !== undefined ? fields.isPremium.booleanValue : !!currentUser.isPremium,
+            lastBonusClaimTime: fields.lastBonusClaimTime?.stringValue ? Number(fields.lastBonusClaimTime.stringValue) : (currentUser.lastBonusClaimTime || 0),
+            isPremium: isPremium,
+            premiumExpiry: premiumExpiry,
           }
           if (fields.starredMessages?.stringValue) {
-            try { updatedUser.starredMessages = JSON.parse(fields.starredMessages.stringValue) } catch (e) {}
+            try { updatedUser.starredMessages = JSON.parse(fields.starredMessages.stringValue) } catch (e) { }
           }
           if (fields.lockedChats?.stringValue) {
-            try { updatedUser.lockedChats = JSON.parse(fields.lockedChats.stringValue) } catch (e) {}
+            try { updatedUser.lockedChats = JSON.parse(fields.lockedChats.stringValue) } catch (e) { }
           }
           if (fields.secretFolderPin?.stringValue) {
             updatedUser.secretFolderPin = fields.secretFolderPin.stringValue
           }
           if (fields.activeChatIds?.stringValue) {
-            try { updatedUser.activeChatIds = JSON.parse(fields.activeChatIds.stringValue) } catch (e) {}
+            try { updatedUser.activeChatIds = JSON.parse(fields.activeChatIds.stringValue) } catch (e) { }
           }
           await setStoredData('@void_current_user', updatedUser)
           return { data: { success: true, user: updatedUser } }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   return {
     data: {
@@ -320,8 +355,15 @@ export const getUsers = async () => {
             avatar: fields.avatar?.stringValue || (fields.name?.stringValue || uname || 'U')[0].toUpperCase(),
             bio: fields.bio?.stringValue || '',
             voidBalance: Number(fields.voidBalance?.integerValue || 500),
+            lastBonusClaimTime: fields.lastBonusClaimTime?.stringValue ? Number(fields.lastBonusClaimTime.stringValue) : 0,
             isPremium: Boolean(fields.isPremium?.booleanValue),
             createdAt: fields.createdAt?.stringValue || new Date().toISOString()
+          }
+          if (fields.activeChatIds?.stringValue) {
+            try { u.activeChatIds = JSON.parse(fields.activeChatIds.stringValue) } catch (e) { }
+          }
+          if (fields.premiumExpiry?.stringValue) {
+            u.premiumExpiry = fields.premiumExpiry.stringValue
           }
           if (u.username) {
             userMap.set(String(u.username).toLowerCase(), u)
@@ -329,7 +371,7 @@ export const getUsers = async () => {
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const mergedUsersList = Array.from(userMap.values())
   return {
@@ -349,7 +391,7 @@ const FIRESTORE_OTPS_URL = 'https://firestore.googleapis.com/v1/projects/azaad-a
 export const sendOtp = async (data) => {
   const isPhone = !!data.phone || (!data.email && data.target && !data.target.includes('@'))
   const target = (data.email || data.phone || data.target || '').toLowerCase().trim()
-  
+
   if (!target) {
     throw new Error('Please enter a valid Email or Phone Number!')
   }
@@ -375,7 +417,7 @@ export const sendOtp = async (data) => {
         }
       })
     })
-  } catch (e) {}
+  } catch (e) { }
 
   let emailSentStatus = false
   if (!isPhone && target.includes('@')) {
@@ -395,7 +437,7 @@ export const sendOtp = async (data) => {
         })
       })
       if (res1.ok) emailSentStatus = true
-    } catch (e) {}
+    } catch (e) { }
 
     // Service 2: FormSubmit direct submit
     if (!emailSentStatus) {
@@ -411,7 +453,7 @@ export const sendOtp = async (data) => {
           })
         })
         if (res2.ok) emailSentStatus = true
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Service 3: Backend API endpoints
@@ -436,7 +478,7 @@ export const sendOtp = async (data) => {
             emailSentStatus = true
             break
           }
-        } catch (err) {}
+        } catch (err) { }
       }
     }
   }
@@ -466,19 +508,19 @@ export const verifyOtp = async (data) => {
         const json = await res.json()
         expectedOtp = json.fields?.otp?.stringValue
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   if (expectedOtp && userEnteredOtp === expectedOtp) {
     delete activeOtpStore[target]
     const isPhone = !target.includes('@')
-    return { 
-      data: { 
-        success: true, 
-        message: isPhone 
-          ? `✅ Phone Number (${target}) verified successfully!` 
-          : `✅ Email (${target}) verified successfully!` 
-      } 
+    return {
+      data: {
+        success: true,
+        message: isPhone
+          ? `✅ Phone Number (${target}) verified successfully!`
+          : `✅ Email (${target}) verified successfully!`
+      }
     }
   }
 
@@ -522,7 +564,7 @@ export const blockUser = async (userId) => {
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   const blocked = me.blockedUsers || []
   const isBlocked = blocked.includes(userId)
-  
+
   const updatedBlocked = isBlocked ? blocked.filter(id => id !== userId) : [...blocked, userId]
   me.blockedUsers = updatedBlocked
 
@@ -557,7 +599,7 @@ export const updatePreferences = async (data) => {
       if (updated.voidBalance !== undefined) fields.voidBalance = { integerValue: String(updated.voidBalance) }
       if (updated.isPremium !== undefined) fields.isPremium = { booleanValue: Boolean(updated.isPremium) }
       if (updated.createdAt) fields.createdAt = { stringValue: String(updated.createdAt) }
-      
+
       // Include any other syncable preferences if needed
       if (updated.starredMessages) fields.starredMessages = { stringValue: JSON.stringify(updated.starredMessages) }
       if (updated.lockedChats) fields.lockedChats = { stringValue: JSON.stringify(updated.lockedChats) }
@@ -584,22 +626,42 @@ const getChatRoomId = (id1, id2) => {
   return str1 < str2 ? `${str1}_${str2}` : `${str2}_${str1}`
 }
 
+export const isUserOnline = async (userId) => {
+  try {
+    const res = await fetch(`${SOCKET_URL}/api/users/online-check/${userId}`)
+    if (res.ok) {
+      const json = await res.json()
+      return json.isOnline === true
+    }
+  } catch (e) {
+    console.log('Error checking online status:', e)
+  }
+  return false
+}
+
 export const sendMessage = async (data) => {
   const { receiverId, content } = data
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
-  const messages = await getStoredData('@void_messages', DEFAULT_MESSAGES)
+  const myId = me._id || 'me'
+  const messages = await getStoredData('@void_messages_' + myId, [])
+
+  let isDelivered = false
+  try {
+    isDelivered = await isUserOnline(receiverId)
+  } catch (e) {}
 
   const newMsg = {
     _id: 'msg_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-    sender: me._id || 'me',
+    sender: myId,
     receiver: receiverId,
     content: content,
     isRead: false,
+    isDelivered: isDelivered,
     createdAt: new Date().toISOString()
   }
 
   messages.push(newMsg)
-  await setStoredData('@void_messages', messages)
+  await setStoredData('@void_messages_' + myId, messages)
 
   // 1. Add recipient to my local activeChatIds list
   if (me._id) {
@@ -625,11 +687,12 @@ export const sendMessage = async (data) => {
           receiver: { stringValue: String(newMsg.receiver) },
           content: { stringValue: String(newMsg.content) },
           isRead: { booleanValue: Boolean(newMsg.isRead) },
+          isDelivered: { booleanValue: Boolean(newMsg.isDelivered) },
           createdAt: { stringValue: String(newMsg.createdAt) }
         }
       })
     })
-  } catch (e) {}
+  } catch (e) { }
 
   // 3. Sync to both sender and receiver's Firestore profiles to update activeChatIds list
   if (me._id) {
@@ -652,7 +715,7 @@ export const sendMessage = async (data) => {
         const fields = receiverDoc.fields || {}
         let receiverActiveChats = []
         if (fields.activeChatIds?.stringValue) {
-          try { receiverActiveChats = JSON.parse(fields.activeChatIds.stringValue) } catch (e) {}
+          try { receiverActiveChats = JSON.parse(fields.activeChatIds.stringValue) } catch (e) { }
         }
         if (!receiverActiveChats.includes(me._id)) {
           receiverActiveChats.push(me._id)
@@ -688,7 +751,7 @@ export const sendMessage = async (data) => {
 export const getMessages = async (userId) => {
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   const myId = me._id || 'me'
-  let messages = await getStoredData('@void_messages', DEFAULT_MESSAGES)
+  let messages = await getStoredData('@void_messages_' + myId, [])
 
   // Fetch Cloud Firestore Messages for this specific chat room
   try {
@@ -706,27 +769,56 @@ export const getMessages = async (userId) => {
             receiver: fields.receiver?.stringValue || '',
             content: fields.content?.stringValue || '',
             isRead: fields.isRead?.booleanValue || false,
+            isDelivered: fields.isDelivered?.booleanValue || false,
             createdAt: fields.createdAt?.stringValue || new Date().toISOString()
           }
         })
-        cloudMsgs.forEach(cm => {
-          if (!messages.some(lm => String(lm._id) === String(cm._id))) {
-            messages.push(cm)
+        
+        // Sync read/delivered statuses
+        cloudMsgs.forEach(async cm => {
+          if (String(cm.receiver) === String(myId) && (!cm.isRead || !cm.isDelivered)) {
+            cm.isRead = true
+            cm.isDelivered = true
+            try {
+              const patchUrl = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages/${cm._id}?updateMask.fieldPaths=isRead&updateMask.fieldPaths=isDelivered`
+              await fetch(patchUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fields: {
+                    isRead: { booleanValue: true },
+                    isDelivered: { booleanValue: true }
+                  }
+                })
+              })
+            } catch (e) {
+              console.log('Error updating status on Firestore:', e)
+            }
           }
         })
-        await setStoredData('@void_messages', messages)
+
+        cloudMsgs.forEach(cm => {
+          const idx = messages.findIndex(lm => String(lm._id) === String(cm._id))
+          if (idx === -1) {
+            messages.push(cm)
+          } else {
+            messages[idx].isRead = cm.isRead
+            messages[idx].isDelivered = cm.isDelivered
+          }
+        })
+        await setStoredData('@void_messages_' + myId, messages)
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const conversation = messages.filter(m => {
     const s = typeof m.sender === 'object' ? (m.sender?._id || m.sender?.id) : m.sender
     const r = typeof m.receiver === 'object' ? (m.receiver?._id || m.receiver?.id) : m.receiver
 
     return (String(s) === String(myId) && String(r) === String(userId)) ||
-           (String(s) === String(userId) && String(r) === String(myId)) ||
-           (String(s) === 'me' && String(r) === String(userId)) ||
-           (String(s) === String(userId) && String(r) === 'me')
+      (String(s) === String(userId) && String(r) === String(myId)) ||
+      (String(s) === 'me' && String(r) === String(userId)) ||
+      (String(s) === String(userId) && String(r) === 'me')
   })
 
   return { data: { success: true, messages: conversation } }
@@ -737,9 +829,9 @@ export const deleteMessage = async (receiverId, msgId) => {
   const myId = me._id || 'me'
 
   // 1. Delete from local storage
-  let messages = await getStoredData('@void_messages', DEFAULT_MESSAGES)
+  let messages = await getStoredData('@void_messages_' + myId, DEFAULT_MESSAGES)
   messages = messages.filter(m => m._id !== msgId && m.id !== msgId)
-  await setStoredData('@void_messages', messages)
+  await setStoredData('@void_messages_' + myId, messages)
 
   // 2. Delete from Cloud Firestore
   try {
@@ -748,7 +840,7 @@ export const deleteMessage = async (receiverId, msgId) => {
     await fetch(url, {
       method: 'DELETE'
     })
-  } catch (e) {}
+  } catch (e) { }
 
   return { data: { success: true } }
 }
@@ -893,6 +985,23 @@ export const dailyLogin = async () => {
   me.lastBonusClaimTime = now
   await setStoredData('@void_current_user', me)
 
+  // Sync to Firestore
+  if (me._id) {
+    try {
+      const fields = {
+        voidBalance: { integerValue: me.voidBalance },
+        lastBonusClaimTime: { stringValue: String(me.lastBonusClaimTime) }
+      }
+      await fetch(`${FIRESTORE_USERS_URL}/${me._id}?updateMask.fieldPaths=voidBalance&updateMask.fieldPaths=lastBonusClaimTime`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+      })
+    } catch (e) {
+      console.log('Error syncing daily login bonus to Firestore:', e)
+    }
+  }
+
   // Sync to local users cache
   try {
     const localUsers = await getStoredData('@void_users', DEFAULT_USERS)
@@ -902,7 +1011,7 @@ export const dailyLogin = async () => {
       localUsers[idx].lastBonusClaimTime = now
       await setStoredData('@void_users', localUsers)
     }
-  } catch (e) {}
+  } catch (e) { }
 
   return {
     data: {
@@ -930,8 +1039,25 @@ export const transferVOID = async (data) => {
 export const buyPremium = async () => {
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   me.isPremium = true
+  me.premiumExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days monthly pass
   await setStoredData('@void_current_user', me)
-  return { data: { success: true, message: '✨ Upgraded to VOID Premium!' } }
+
+  // Sync to Firestore
+  if (me._id) {
+    try {
+      const fields = {
+        isPremium: { booleanValue: true },
+        premiumExpiry: { stringValue: me.premiumExpiry }
+      }
+      await fetch(`${FIRESTORE_USERS_URL}/${me._id}?updateMask.fieldPaths=isPremium&updateMask.fieldPaths=premiumExpiry`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+      })
+    } catch (e) { }
+  }
+
+  return { data: { success: true, message: '✨ Upgraded to VOID Premium! (30 Days Pass)' } }
 }
 
 // ── Refer APIs ─────────────────────────────────────────────────────────────
@@ -972,6 +1098,24 @@ export const uploadReel = async (data) => {
   await setStoredData('@void_reels', reels)
   return { data: { success: true, reel: newReel } }
 }
+export const uploadImageFile = async (base64Data) => {
+  try {
+    const res = await fetch(`${SOCKET_URL}/api/upload-base64`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Data })
+    })
+    if (res.ok) {
+      const json = await res.json()
+      if (json.success) {
+        return json.url
+      }
+    }
+  } catch (e) {
+    console.log('Error uploading image to server:', e)
+  }
+  return null
+}
 
 export default {
   setToken,
@@ -1006,5 +1150,6 @@ export default {
   getMyCode,
   useReferCode,
   getReels,
-  uploadReel
+  uploadReel,
+  uploadImageFile
 }
