@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image, Linking
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 const RTCView = Platform.OS === 'web' ? View : (require('react-native-webrtc').RTCView || View)
@@ -159,7 +159,7 @@ export default function ChatScreen({
 
   useEffect(() => {
     fetchMessages()
-    const interval = setInterval(fetchMessages, 3000)
+    const interval = setInterval(fetchMessages, 800)
 
     const socket = rawWebrtcService.socket
     const handleReceiveMessage = (data) => {
@@ -1348,21 +1348,34 @@ export default function ChatScreen({
               <TouchableOpacity 
                 activeOpacity={0.9} 
                 onLongPress={() => handleMsgLongPress(msg)} 
-                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem, { padding: 4, overflow: 'hidden' }]}
               >
-                <View style={[styles.imageBubble, msg.filter && getFilterStyle(msg.filter), { padding: 4 }]}>
-                  {msg.content.startsWith('http') ? (
-                    <Image 
-                      source={{ uri: msg.content }} 
-                      style={{ width: 220, height: 160, borderRadius: 12 }} 
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={{ width: 220, height: 160, borderRadius: 12, backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center' }}>
-                      <Text style={styles.imagePlaceholder}>🖼️</Text>
-                      <Text style={styles.imageText}>{msg.content}</Text>
-                    </View>
-                  )}
+                <View style={[styles.imageBubble, msg.filter && getFilterStyle(msg.filter)]}>
+                  {(() => {
+                    const isUri = msg.content && (
+                      msg.content.startsWith('http') || 
+                      msg.content.startsWith('data:') || 
+                      msg.content.startsWith('file:') || 
+                      msg.content.startsWith('/') ||
+                      msg.content.includes('/') ||
+                      msg.content.length > 200
+                    )
+                    if (isUri) {
+                      return (
+                        <Image 
+                          source={{ uri: msg.content }} 
+                          style={{ width: 230, height: 170, borderRadius: 10 }} 
+                          resizeMode="cover"
+                        />
+                      )
+                    }
+                    return (
+                      <View style={{ width: 230, height: 170, borderRadius: 10, backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center', padding: 12 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 8 }}>🖼️</Text>
+                        <Text style={{ color: '#8b8ba7', fontSize: 11, textAlign: 'center' }} numberOfLines={3}>{msg.content}</Text>
+                      </View>
+                    )
+                  })()}
                   {msg.filter && msg.filter !== 'normal' && (
                     <Text style={styles.filterBadge}>
                       {cameraFilters.find(f => f.name === msg.filter)?.emoji} {cameraFilters.find(f => f.name === msg.filter)?.label}
@@ -1394,19 +1407,28 @@ export default function ChatScreen({
                 <TouchableOpacity 
                   activeOpacity={0.9} 
                   onLongPress={() => handleMsgLongPress(msg)} 
-                  style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+                  onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`)}
+                  style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem, { padding: 4 }]}
                 >
-                  <View style={[styles.locationBubble, { padding: 4 }]}>
-                    <View style={{ width: 220, height: 150, borderRadius: 12, overflow: 'hidden' }}>
-                      {false ? (
-                        <View />
-                      ) : (
-                        <View style={{ width: '100%', height: '100%', backgroundColor: '#1a1a24', justifyContent: 'center', alignItems: 'center' }}>
-                          <Text style={{ fontSize: 24 }}>📍</Text>
-                        </View>
-                      )}
+                  <View style={{ width: 230, borderRadius: 10, overflow: 'hidden' }}>
+                    <View style={{ width: '100%', height: 120, backgroundColor: '#1b1b22', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                      <View style={{ position: 'absolute', width: '100%', height: 1, backgroundColor: '#ffffff0d', top: 30 }} />
+                      <View style={{ position: 'absolute', width: '100%', height: 1, backgroundColor: '#ffffff0d', top: 60 }} />
+                      <View style={{ position: 'absolute', width: '100%', height: 1, backgroundColor: '#ffffff0d', top: 90 }} />
+                      <View style={{ position: 'absolute', height: '100%', width: 1, backgroundColor: '#ffffff0d', left: 60 }} />
+                      <View style={{ position: 'absolute', height: '100%', width: 1, backgroundColor: '#ffffff0d', left: 120 }} />
+                      <View style={{ position: 'absolute', height: '100%', width: 1, backgroundColor: '#ffffff0d', left: 180 }} />
+                      
+                      <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#c8ff0020', justifyContent: 'center', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 24, position: 'absolute', bottom: 6 }}>📍</Text>
+                      </View>
                     </View>
-                    <Text style={[styles.locationText, { marginTop: 6, paddingHorizontal: 6 }]}>{msg.content}</Text>
+                    
+                    <View style={{ padding: 10, backgroundColor: '#0f0f15' }}>
+                      <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>Live Location</Text>
+                      <Text style={{ color: '#8b8ba7', fontSize: 10, marginTop: 2 }}>{lat.toFixed(4)}, {lon.toFixed(4)}</Text>
+                      <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800', marginTop: 8 }}>🗺️ Open in Google Maps</Text>
+                    </View>
                   </View>
                   <View style={styles.msgMeta}>
                     {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
@@ -1445,29 +1467,46 @@ export default function ChatScreen({
               </TouchableOpacity>
             )}
             
-            {msg.type === 'document' && (
-              <TouchableOpacity 
-                activeOpacity={0.9} 
-                onLongPress={() => handleMsgLongPress(msg)} 
-                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
-              >
-                <View style={styles.docBubble}>
-                  <Icon name="description" size={24} color="#8b8ba7" style={styles.docIcon} />
-                  <View style={styles.docInfo}>
-                    <Text style={styles.docName}>{msg.content}</Text>
+            {msg.type === 'document' && (() => {
+              const fileName = msg.content.split('/').pop() || 'document.pdf'
+              const cleanName = fileName.length > 20 ? fileName.substring(0, 17) + '...' : fileName
+              const isPdf = fileName.toLowerCase().endsWith('.pdf')
+              const isImageDoc = fileName.toLowerCase().endsWith('.png') || fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')
+              const fileTypeLabel = isPdf ? 'PDF' : (isImageDoc ? 'IMAGE' : 'DOC')
+              const iconColor = isPdf ? '#f87171' : (isImageDoc ? '#60a5fa' : '#34d399')
+
+              return (
+                <TouchableOpacity 
+                  activeOpacity={0.9} 
+                  onLongPress={() => handleMsgLongPress(msg)} 
+                  onPress={() => {
+                    if (msg.content.startsWith('http')) {
+                      Linking.openURL(msg.content)
+                    } else {
+                      Alert.alert('Document Path', msg.content)
+                    }
+                  }}
+                  style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem, { padding: 10 }]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, width: 210 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: iconColor + '20', justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 20, color: iconColor }}>📄</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{cleanName}</Text>
+                      <Text style={{ color: '#8b8ba7', fontSize: 10, marginTop: 2 }}>{fileTypeLabel} • 1.2 MB</Text>
+                    </View>
+                    <Text style={{ fontSize: 14, color: '#c8ff00' }}>📥</Text>
                   </View>
-                  <TouchableOpacity style={styles.downloadBtn}>
-                    <Icon name="download" size={16} color="#c8ff00" />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.msgMeta}>
-                  {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
-                  <Text style={styles.msgTime}>{msg.time}</Text>
-                  {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
-                  <Text style={styles.msgLock}>🔒</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+                  <View style={styles.msgMeta}>
+                    {msg.isStarred && <Text style={{ fontSize: 10, marginRight: 4 }}>⭐</Text>}
+                    <Text style={styles.msgTime}>{msg.time}</Text>
+                    {msg.from === 'me' && <Text style={styles.msgStatus}>✓✓</Text>}
+                    <Text style={styles.msgLock}>🔒</Text>
+                  </View>
+                </TouchableOpacity>
+              )
+            })()}
             
             {msg.type === 'permissionRequest' && (
               <View style={[styles.bubble, styles.permissionBubble]}>

@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
-      "package": "com.voidchat.app",
+      "package": "voidchat.tech",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

@@ -744,6 +744,63 @@ export default function App() {
     Alert.alert('🔓 Unlocked', 'Chat moved back to main inbox.')
   }
 
+  const deleteChatSession = async (chatId) => {
+    Alert.alert(
+      'Delete Chat Session',
+      'Are you sure you want to delete this chat session? All messages will be cleared and this chat will be removed from your inbox.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const currentList = currentUser?.activeChatIds || []
+              const updatedList = currentList.filter(id => String(id) !== String(chatId))
+              
+              const optimUser = { ...currentUser, activeChatIds: updatedList }
+              setCurrentUser(optimUser)
+              await updatePreferences({ activeChatIds: updatedList })
+              
+              let localMsgs = await AsyncStorage.getItem('@void_messages')
+              if (localMsgs) {
+                let parsed = JSON.parse(localMsgs)
+                parsed = parsed.filter(m => {
+                  const s = typeof m.sender === 'object' ? (m.sender?._id || m.sender?.id) : m.sender
+                  const r = typeof m.receiver === 'object' ? (m.receiver?._id || m.receiver?.id) : m.receiver
+                  return !(String(s) === String(chatId) || String(r) === String(chatId))
+                })
+                await AsyncStorage.setItem('@void_messages', JSON.stringify(parsed))
+              }
+
+              try {
+                const myId = currentUser?._id || currentUser?.id
+                const chatRoomId = String(myId) < String(chatId) ? `${myId}_${chatId}` : `${chatId}_${myId}`
+                const res = await fetch(`https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents/chats/${chatRoomId}/messages`)
+                if (res.ok) {
+                  const json = await res.json()
+                  if (json.documents && Array.isArray(json.documents)) {
+                    for (const doc of json.documents) {
+                      const msgId = doc.name.split('/').pop()
+                      await fetch(`https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents/chats/${chatRoomId}/messages/${msgId}`, {
+                        method: 'DELETE'
+                      })
+                    }
+                  }
+                }
+              } catch (err) {}
+
+              Alert.alert('Success', 'Chat session deleted successfully.')
+            } catch (e) {
+              console.log('Error deleting chat session:', e)
+              Alert.alert('Error', 'Failed to delete chat session.')
+            }
+          }
+        }
+      ]
+    )
+  }
+
   const handleLockToggle = (chatId) => {
     if (secretChatIds.includes(chatId)) {
       removeFromSecretFolder(chatId)
@@ -829,6 +886,24 @@ export default function App() {
   }
 
   const handleSaveProfile = async () => {
+    const targetUname = (usernameText || '').trim().toLowerCase()
+    if (!targetUname) {
+      Alert.alert('Error', 'Username cannot be empty.')
+      return
+    }
+
+    const currentUserId = currentUser?._id || currentUser?.id
+    const isTaken = users.some(u => {
+      const uId = String(u._id || u.id)
+      const uUname = String(u.username || '').trim().toLowerCase()
+      return uId !== String(currentUserId) && uUname === targetUname
+    })
+
+    if (isTaken) {
+      Alert.alert('Error', 'This username is already taken! Please choose a different one.')
+      return
+    }
+
     try {
       await AsyncStorage.setItem('user_first_name', String(firstName || ''))
       await AsyncStorage.setItem('user_last_name', String(lastName || ''))
@@ -2003,12 +2078,9 @@ export default function App() {
                   {(() => {
                     const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
                     const filtered = users.filter(u => {
-                      const name = (u.name || '').toLowerCase()
                       const uname = (u.username || '').toLowerCase()
-                      const email = (u.email || '').toLowerCase()
-                      const phone = (u.phone || u.phoneNumber || '').toLowerCase()
                       const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                      return !isSelf && (name.includes(q) || uname.includes(q) || email.includes(q) || phone.includes(q))
+                      return !isSelf && uname === q
                     })
                     if (filtered.length === 0) {
                       return (
@@ -2061,11 +2133,12 @@ export default function App() {
                   onPress={() => setShowChat(chat)}
                   onLongPress={() => {
                     Alert.alert(
-                      '🛡️ Secure Chat',
-                      `Do you want to move ${chat.name} to the Secret Vault? It will be hidden from the main chat list.`,
+                      '🛡️ Chat Options',
+                      `Choose an option for ${chat.name}:`,
                       [
                         { text: 'Cancel', style: 'cancel' },
-                        { text: 'Move to Vault', style: 'destructive', onPress: () => moveToSecretFolder(chat.id) }
+                        { text: '🔒 Move to Secret Vault', onPress: () => moveToSecretFolder(chat.id) },
+                        { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
                       ]
                     )
                   }}
@@ -2285,14 +2358,11 @@ export default function App() {
           {inboxSearchQuery.trim() !== '' && (
             <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
               {(() => {
-                const q = inboxSearchQuery.trim().toLowerCase()
+                const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
                 const filtered = users.filter(u => {
-                  const name = (u.name || '').toLowerCase()
                   const uname = (u.username || '').toLowerCase()
-                  const email = (u.email || '').toLowerCase()
-                  const phone = (u.phone || u.phoneNumber || '').toLowerCase()
                   const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                  return !isSelf && (name.includes(q) || uname.includes(q) || email.includes(q) || phone.includes(q))
+                  return !isSelf && uname === q
                 })
                 if (filtered.length === 0) {
                   return (
@@ -2343,6 +2413,16 @@ export default function App() {
               key={chat.id}
               style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
               onPress={() => setShowChat(chat)}
+              onLongPress={() => {
+                Alert.alert(
+                  '🛡️ Chat Options',
+                  `Choose an option for ${chat.name}:`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
+                  ]
+                )
+              }}
             >
               <View style={{ position: 'relative' }}>
                 <View style={[styles.chatAvatar, { backgroundColor: chat.color }]}>
