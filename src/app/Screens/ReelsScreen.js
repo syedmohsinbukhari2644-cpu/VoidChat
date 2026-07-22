@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, Dimensions, Alert
 } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import Icon from '../../components/Icon'
 import GroupChatScreen from './GroupChatScreen'
 
@@ -40,7 +41,23 @@ caption: 'Haq ki baat — VOID CHAT pe! 🔓 #freedom',
 ]
 
 export default function ReelsScreen() {
+  const [reels, setReels] = useState(mockReels)
   const [currentReel, setCurrentReel] = useState(0)
+
+  useEffect(() => {
+    const loadDynamicReels = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('dynamic_reels')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          setReels([...parsed, ...mockReels])
+        }
+      } catch (e) {
+        console.warn('Error loading dynamic reels:', e)
+      }
+    }
+    loadDynamicReels()
+  }, [])
   const [liked, setLiked] = useState({})
   const [saved, setSaved] = useState({})
   const [reposted, setReposted] = useState({})
@@ -78,7 +95,7 @@ export default function ReelsScreen() {
     { name: 'bright',  label: 'Bright',  dot: '#fbbf24' },
   ]
   
-  const reel = mockReels[currentReel]
+  const reel = reels[currentReel] || mockReels[0]
 
   if (showGroupChat) {
     return (
@@ -181,7 +198,7 @@ export default function ReelsScreen() {
 
         {/* Navigation Dots */}
         <View style={styles.dots}>
-          {mockReels.map((_, i) => (
+          {reels.map((_, i) => (
             <TouchableOpacity
               key={i}
               onPress={() => setCurrentReel(i)}

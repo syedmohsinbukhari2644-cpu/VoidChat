@@ -58,6 +58,7 @@ const UserAvatar = ({ avatar, size = 40, style, textStyle, fallback = '👤' }) 
 export default function App() {
   const { width: windowWidth } = useWindowDimensions()
   const isLargeScreen = windowWidth >= 768
+  const tabWidth = isLargeScreen ? 320 : windowWidth
   const insets = useSafeAreaInsets()
   const universalTopInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -217,6 +218,7 @@ export default function App() {
   const [mediaUrl, setMediaUrl] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [isAnonymous, setIsAnonymous] = useState(false)
+  const [shareAsReel, setShareAsReel] = useState(false)
   const [referCode, setReferCode] = useState('')
   const [posting, setPosting] = useState(false)
 
@@ -1661,11 +1663,36 @@ export default function App() {
         mediaUrl: postType === 'image' || postType === 'video' ? mediaUrl : '',
         linkUrl: postType === 'link' ? linkUrl : ''
       })
+
+      // If video is shared as a reel, persist it dynamically
+      if (postType === 'video' && shareAsReel) {
+        const newReelObj = {
+          id: 'dynamic_' + Date.now(),
+          user: currentUser?.username || 'user_' + String(currentUser?._id || currentUser?.id || 'me').slice(-4),
+          caption: postContent || 'Dynamic Video Reel 🎥 #voidchat',
+          views: '0',
+          likes: 0,
+          VOID: 100,
+          color: '#0f3460',
+          videoUrl: mediaUrl,
+          isDynamic: true
+        }
+        try {
+          const existing = await AsyncStorage.getItem('dynamic_reels')
+          const reelsList = existing ? JSON.parse(existing) : []
+          reelsList.unshift(newReelObj)
+          await AsyncStorage.setItem('dynamic_reels', JSON.stringify(reelsList))
+        } catch (e) {
+          console.warn('Error saving reel:', e)
+        }
+      }
+
       Alert.alert('✅', res.data.message)
       setPostContent('')
       setMediaUrl('')
       setLinkUrl('')
       setPostType('text')
+      setShareAsReel(false)
       setShowCreate(false)
       loadFeed()
       loadBalance()
@@ -1794,8 +1821,10 @@ export default function App() {
     )
   }
 
-  const handleSyncContacts = async () => {
-    setShowContactsSyncModal(true)
+  const handleSyncContacts = async (silent = false) => {
+    if (!silent) {
+      setShowContactsSyncModal(true)
+    }
     setSyncingContacts(true)
     try {
       let currentUsers = users
@@ -1900,6 +1929,12 @@ export default function App() {
       setSyncingContacts(false)
     }
   }
+
+  useEffect(() => {
+    if (activeTab === 'contacts') {
+      handleSyncContacts(true)
+    }
+  }, [activeTab])
 
   const isPostOwner = (post) => {
     if (!currentUser || !post) return false
@@ -2102,10 +2137,12 @@ export default function App() {
             <Text style={styles.VOIDText}>{VOIDBalance}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setActiveTab('inbox')} style={styles.notifIconBtn}>
-          <Icon name="chat" size={20} color={activeTab === 'inbox' ? theme.primary : '#9ca3af'} forceEmoji={true} />
-        </TouchableOpacity>
-        {appMode === 'social' && (
+        {!isLargeScreen && (
+          <TouchableOpacity onPress={() => setActiveTab('inbox')} style={styles.notifIconBtn}>
+            <Icon name="chat" size={20} color={activeTab === 'inbox' ? theme.primary : '#9ca3af'} forceEmoji={true} />
+          </TouchableOpacity>
+        )}
+        {!isLargeScreen && appMode === 'social' && (
           <TouchableOpacity onPress={() => setShowNotifs(true)} style={styles.notifIconBtn}>
             <Icon name="notifications" size={22} color="#9ca3af" />
           </TouchableOpacity>
@@ -2113,24 +2150,28 @@ export default function App() {
         {showMoreOptions && (
           <TouchableOpacity
             onPress={() => {
-              Alert.alert(
-                'Void Settings',
-                'Select an action:',
-                [
-                  { text: '👥 New Group', onPress: () => setShowCreateGroupModal(true) },
-                  { text: '🌐 New Community', onPress: () => Alert.alert('New Community', 'Community creation is currently in invite-only beta.') },
-                  { text: '📢 Broadcast List', onPress: () => Alert.alert('Broadcast List', 'Create a broadcast list to send messages to multiple users at once.') },
-                  { text: '💻 Linked Devices', onPress: () => setShowDevicesModal(true) },
-                  { text: '⭐ Starred Messages', onPress: async () => {
-                    try {
-                      const stored = await AsyncStorage.getItem('starred_messages') || '[]'
-                      setStarredMessages(JSON.parse(stored))
-                    } catch (e) {}
-                    setShowStarredModal(true)
-                  }},
-                  { text: 'Cancel', style: 'cancel' }
-                ]
-              )
+              if (appMode === 'chat') {
+                setShowChatOptionsMenu(true)
+              } else {
+                Alert.alert(
+                  'Void Settings',
+                  'Select an action:',
+                  [
+                    { text: '👥 New Group', onPress: () => setShowCreateGroupModal(true) },
+                    { text: '🌐 New Community', onPress: () => Alert.alert('New Community', 'Community creation is currently in invite-only beta.') },
+                    { text: '📢 Broadcast List', onPress: () => Alert.alert('Broadcast List', 'Create a broadcast list to send messages to multiple users at once.') },
+                    { text: '💻 Linked Devices', onPress: () => setShowDevicesModal(true) },
+                    { text: '⭐ Starred Messages', onPress: async () => {
+                      try {
+                        const stored = await AsyncStorage.getItem('starred_messages') || '[]'
+                        setStarredMessages(JSON.parse(stored))
+                      } catch (e) {}
+                      setShowStarredModal(true)
+                    }},
+                    { text: 'Cancel', style: 'cancel' }
+                  ]
+                )
+              }
             }}
             style={{ padding: 4, marginLeft: 6 }}
           >
@@ -2571,61 +2612,20 @@ export default function App() {
     )
   }
 
-  const renderInboxContent = () => (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {appMode === 'chat' ? (
-        <View style={{ flex: 1 }}>
-          {/* WhatsApp Style Tab bar with Three Dots Menu */}
-          <View style={{ flexDirection: 'row', backgroundColor: theme.cardBg, borderBottomWidth: 1, borderBottomColor: theme.border, alignItems: 'center' }}>
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'chats' ? 2 : 0, borderBottomColor: theme.primary }}
-              onPress={() => {
-                setChatInboxTab('chats')
-                swipeScrollViewRef.current?.scrollTo({ x: 0, animated: true })
-              }}
-            >
-              <Text style={{ color: chatInboxTab === 'chats' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>CHATS</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'contacts' ? 2 : 0, borderBottomColor: theme.primary }}
-              onPress={() => {
-                setChatInboxTab('contacts')
-                swipeScrollViewRef.current?.scrollTo({ x: windowWidth, animated: true })
-              }}
-            >
-              <Text style={{ color: chatInboxTab === 'contacts' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>👥 CONTACTS</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'status' ? 2 : 0, borderBottomColor: theme.primary }}
-              onPress={() => {
-                setChatInboxTab('status')
-                swipeScrollViewRef.current?.scrollTo({ x: windowWidth * 2, animated: true })
-              }}
-            >
-              <Text style={{ color: chatInboxTab === 'status' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>STATUS</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              onPress={() => {
-                if (chatInboxTab === 'status') {
-                  setShowStatusPrivacyModal(true)
-                } else {
-                  setShowChatOptionsMenu(true)
-                }
-              }}
-            >
+  const renderInboxContent = () => {
+    // ── Render Chats list ──
+    if (activeTab === 'inbox') {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', backgroundColor: theme.cardBg, borderBottomWidth: 1, borderBottomColor: theme.border, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
+            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>Chats</Text>
+            <TouchableOpacity onPress={() => setShowChatOptionsMenu(true)}>
               <Icon name="more_vert" size={22} color={theme.text} />
             </TouchableOpacity>
           </View>
-
-          {/* Search Bar for Hidden Vault Check */}
+          
+          {/* Search Bar */}
           <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.bg }}>
             <TextInput
               style={{
@@ -2645,326 +2645,431 @@ export default function App() {
             />
           </View>
 
-          {/* ── WhatsApp Style Swipeable Horizontal Container ── */}
-          <ScrollView
-            ref={swipeScrollViewRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={{ flex: 1 }}
-            onMomentumScrollEnd={(e) => {
-              const offsetX = e.nativeEvent.contentOffset.x
-              const page = Math.round(offsetX / windowWidth)
-              if (page === 2) {
-                setChatInboxTab('status')
-              } else if (page === 1) {
-                setChatInboxTab('contacts')
-              } else {
-                setChatInboxTab('chats')
-              }
-            }}
-          >
-            {/* 📱 Screen 1: CHATS Tab Content */}
-            <View style={{ width: windowWidth, flex: 1 }}>
-              <ScrollView style={styles.content}>
-                {/* Secret Vault Shortcut Row */}
-                {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      padding: 16,
-                      backgroundColor: theme.cardBg,
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.border,
-                      gap: 14,
-                      marginHorizontal: 12,
-                      marginVertical: 12,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                    }}
-                    onPress={() => {
-                      setFolderAuthAction('open_folder')
-                      if (!secretFolderPin) {
-                        setPinSetupStep(1)
-                        setTempPinSetup('')
-                        setAuthError('')
-                        setShowFolderAuthModal(true)
-                      } else {
-                        setFolderAuthPinInput('')
-                        setAuthError('')
-                        setShowFolderAuthModal(true)
-                      }
-                    }}
-                  >
-                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDayMode ? '#c8ff0020' : '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
-                      <Icon name="lock" size={18} color={theme.primary} forceEmoji={true} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
-                      <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>Secure folder for personal chats</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
-                      <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
-
-                {/* Global Registered Users Search Results */}
-                {inboxSearchQuery.trim() !== '' && (
-                  <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
-                    {(() => {
-                      const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
-                      const filtered = users.filter(u => {
-                        const uname = (u.username || '').toLowerCase()
-                        const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                        return !isSelf && uname === q
-                      })
-                      if (filtered.length === 0) {
-                        return (
-                          <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border }}>
-                            <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
-                              🔍 No registered user found matching "{inboxSearchQuery}"
-                            </Text>
-                          </View>
-                        )
-                      }
-                      return filtered.map(u => (
-                        <TouchableOpacity
-                          key={u._id || u.id}
-                          style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
-                          onPress={async () => {
-                            await handleSelectUserToChat(u)
-                            const newChatObj = {
-                              id: u._id || u.id,
-                              name: u.name || u.username,
-                              username: u.username,
-                              phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
-                              color: '#c8ff00',
-                              avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
-                              streak: 0,
-                              unread: 0
-                            }
-                            setShowChat(newChatObj)
-                            setInboxSearchQuery('')
-                          }}
-                        >
-                          <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
-                            <UserAvatar 
-                              avatar={u.avatar} 
-                              size={44} 
-                              textStyle={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]} 
-                              fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
-                            />
-                          </View>
-                          <View style={styles.chatInfo}>
-                            <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
-                            <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to start encrypted chat</Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))
-                    })()}
-                  </View>
-                )}
-
-                {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => {
-                  const unreadCount = unreadMap[chat.id] || chat.unread || 0
-
-                  return (
-                    <TouchableOpacity
-                      key={chat.id}
-                      style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border, paddingVertical: 12 }]}
-                      onPress={() => {
-                        markChatAsRead(chat.id)
-                        setShowChat(chat)
-                      }}
-                      onLongPress={() => {
-                        Alert.alert(
-                          '🛡️ Chat Options',
-                          `Choose an option for ${chat.name}:`,
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: '🔒 Move to Secret Vault', onPress: () => moveToSecretFolder(chat.id) },
-                            { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
-                          ]
-                        )
-                      }}
-                    >
-                      <View style={{ position: 'relative' }}>
-                        <View style={[styles.chatAvatar, { backgroundColor: chat.color, overflow: 'hidden' }]}>
-                          <UserAvatar 
-                            avatar={chat.avatar} 
-                            size={40} 
-                            textStyle={[styles.avatarText, { color: '#ffffff' }]} 
-                            fallback={chat.name[0]} 
-                          />
-                        </View>
-
-                        {/* 🔴 Unread Dot Badge on Avatar */}
-                        {unreadCount > 0 && (
-                          <View style={{
-                            position: 'absolute',
-                            top: -2,
-                            right: -2,
-                            width: 14,
-                            height: 14,
-                            borderRadius: 7,
-                            backgroundColor: '#ef4444',
-                            borderWidth: 2,
-                            borderColor: theme.cardBg
-                          }} />
-                        )}
-                      </View>
-
-                      <View style={styles.chatInfo}>
-                        <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>
-                          {chat.name}
-                        </Text>
-                        <Text style={{ color: theme.subText, fontSize: 12 }} numberOfLines={1}>
-                          {chat.lastMessage || 'End-to-end encrypted'}
-                        </Text>
-                      </View>
-
-                      {/* 🟢 Glowing Unread Counting Badge */}
-                      {unreadCount > 0 && (
-                        <View style={{
-                          backgroundColor: '#c8ff00',
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 12,
-                          minWidth: 22,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          shadowColor: '#c8ff00',
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowOpacity: 0.5,
-                          shadowRadius: 4,
-                          elevation: 4
-                        }}>
-                          <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>
-                            {unreadCount}
-                          </Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  )
-                })}
-            </ScrollView>
-          </View>
-
-          {/* 📱 Screen 2: 👥 CONTACTS Tab Content */}
-          <View style={{ width: windowWidth, flex: 1 }}>
-            <ScrollView style={styles.content}>
-              <View style={{ padding: 12, gap: 10 }}>
-                {/* Top Sync Phone Contacts Banner */}
+          {/* Chats List */}
+          <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
+            <View style={{ padding: 12, gap: 10 }}>
+              {/* Secret Vault Shortcut Row */}
+              {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
                 <TouchableOpacity
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
+                    padding: 16,
                     backgroundColor: theme.cardBg,
                     borderRadius: 16,
-                    padding: 14,
                     borderWidth: 1,
-                    borderColor: theme.primary,
+                    borderColor: theme.border,
                     gap: 12
                   }}
-                  onPress={syncDeviceContacts}
+                  onPress={() => {
+                    setFolderAuthAction('open_folder')
+                    if (!secretFolderPin) {
+                      setPinSetupStep(1)
+                      setTempPinSetup('')
+                      setAuthError('')
+                      setShowFolderAuthModal(true)
+                    } else {
+                      setFolderAuthPinInput('')
+                      setAuthError('')
+                      setShowFolderAuthModal(true)
+                    }
+                  }}
                 >
-                  <Text style={{ fontSize: 24 }}>📱</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800' }}>
-                      {syncingContacts ? '⏳ Syncing Contacts...' : '🔄 Sync Phone Contacts'}
-                    </Text>
-                    <Text style={{ color: theme.subText, fontSize: 11 }}>
-                      Find friends registered via phone number
-                    </Text>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDayMode ? '#c8ff0020' : '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
+                    <Icon name="lock" size={18} color={theme.primary} forceEmoji={true} />
                   </View>
-                  <View style={{ backgroundColor: theme.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}>
-                    <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>SYNC</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
+                    <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>Secure folder for personal chats</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
+                    <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
                   </View>
                 </TouchableOpacity>
+              )}
 
-                <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
-                  REGISTERED CONTACTS ({users.length})
-                </Text>
-
-                {users.length === 0 ? (
-                  <View style={{ padding: 30, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 36, marginBottom: 8 }}>👥</Text>
-                    <Text style={{ color: theme.subText, fontSize: 13, textAlign: 'center' }}>
-                      No contacts synced yet. Tap Sync Phone Contacts above to find your friends on VOID CHAT!
-                    </Text>
-                  </View>
-                ) : (
-                  users.filter(u => {
-                    const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                    if (isSelf) return false
-                    if (inboxSearchQuery.trim()) {
-                      return (u.username || u.name || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())
+              {/* Global Registered Users Search Results */}
+              {inboxSearchQuery.trim() !== '' && (
+                <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+                  {(() => {
+                    const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
+                    const filtered = users.filter(u => {
+                      const uname = (u.username || '').toLowerCase()
+                      const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                      return !isSelf && uname === q
+                    })
+                    if (filtered.length === 0) {
+                      return (
+                        <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginBottom: 8 }}>
+                          <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
+                            🔍 No registered user found matching "{inboxSearchQuery}"
+                          </Text>
+                        </View>
+                      )
                     }
-                    return true
-                  }).map(u => (
-                    <TouchableOpacity
-                      key={u._id || u.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        padding: 12,
-                        backgroundColor: theme.cardBg,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        gap: 12
-                      }}
-                      onPress={async () => {
-                        await handleSelectUserToChat(u)
-                        const newChatObj = {
-                          id: u._id || u.id,
-                          name: u.name || u.username,
-                          username: u.username,
-                          phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
-                          color: '#c8ff00',
-                          avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
-                          streak: 0,
-                          unread: 0
-                        }
-                        setShowChat(newChatObj)
-                      }}
-                    >
-                      <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
-                        <UserAvatar
-                          avatar={u.avatar}
-                          size={44}
-                          textStyle={{ color: '#000', fontSize: 16, fontWeight: '900' }}
-                          fallback={(u.username || u.name || 'U')[0].toUpperCase()}
+                    return filtered.map(u => (
+                      <TouchableOpacity
+                        key={u._id || u.id}
+                        style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
+                        onPress={async () => {
+                          await handleSelectUserToChat(u)
+                          const newChatObj = {
+                            id: u._id || u.id,
+                            name: u.name || u.username,
+                            username: u.username,
+                            phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                            color: '#c8ff00',
+                            avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
+                            streak: 0,
+                            unread: 0
+                          }
+                          setShowChat(newChatObj)
+                          setInboxSearchQuery('')
+                        }}
+                      >
+                        <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
+                          <UserAvatar 
+                            avatar={u.avatar} 
+                            size={44} 
+                            textStyle={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]} 
+                            fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
+                          />
+                        </View>
+                        <View style={styles.chatInfo}>
+                          <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
+                          <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to start encrypted chat</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                  })()}
+                </View>
+              )}
+
+              {/* Active Chats Map */}
+              {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => {
+                const unreadCount = unreadMap[chat.id] || chat.unread || 0
+
+                return (
+                  <TouchableOpacity
+                    key={chat.id}
+                    style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border, paddingVertical: 12 }]}
+                    onPress={() => {
+                      markChatAsRead(chat.id)
+                      setShowChat(chat)
+                    }}
+                    onLongPress={() => {
+                      Alert.alert(
+                        '🛡️ Chat Options',
+                        `Choose an option for ${chat.name}:`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: '🔒 Move to Secret Vault', onPress: () => moveToSecretFolder(chat.id) },
+                          { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
+                        ]
+                      )
+                    }}
+                  >
+                    <View style={{ position: 'relative' }}>
+                      <View style={[styles.chatAvatar, { backgroundColor: chat.color, overflow: 'hidden' }]}>
+                        <UserAvatar 
+                          avatar={chat.avatar} 
+                          size={40} 
+                          textStyle={[styles.avatarText, { color: '#ffffff' }]} 
+                          fallback={chat.name[0]} 
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>@{u.username || u.name}</Text>
-                        <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
-                          {u.phone || u.phoneNumber || u.email || 'Registered Contact'}
+                      {unreadCount > 0 && (
+                        <View style={{
+                          position: 'absolute',
+                          top: -2,
+                          right: -2,
+                          width: 14,
+                          height: 14,
+                          borderRadius: 7,
+                          backgroundColor: '#ef4444',
+                          borderWidth: 2,
+                          borderColor: theme.cardBg
+                        }} />
+                      )}
+                    </View>
+                    <View style={styles.chatInfo}>
+                      <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>
+                        {chat.name}
+                      </Text>
+                      <Text style={{ color: theme.subText, fontSize: 12 }} numberOfLines={1}>
+                        {chat.lastMessage || 'End-to-end encrypted'}
+                      </Text>
+                    </View>
+                    {unreadCount > 0 && (
+                      <View style={{
+                        backgroundColor: '#c8ff00',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: 12,
+                        minWidth: 22,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        shadowColor: '#c8ff00',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.5,
+                        shadowRadius: 4,
+                        elevation: 4
+                      }}>
+                        <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>
+                          {unreadCount}
                         </Text>
                       </View>
-                      <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
-                        <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>💬 Chat</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))
-                )}
+                    )}
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      )
+    }
+
+    // ── Render Contacts list ──
+    if (activeTab === 'contacts') {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+
+          {/* Contacts List */}
+          <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
+            <View style={{ padding: 12, gap: 10 }}>
+              <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
+                REGISTERED CONTACTS ({users.length})
+              </Text>
+
+              {users.length === 0 ? (
+                <View style={{ padding: 30, alignItems: 'center' }}>
+                  <Icon name="contacts" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
+                  <Text style={{ color: theme.subText, fontSize: 13, textAlign: 'center' }}>
+                    {syncingContacts ? 'Syncing contacts from phonebook...' : 'No registered contacts found on VOID CHAT.'}
+                  </Text>
+                </View>
+              ) : (
+                users.filter(u => {
+                  const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                  if (isSelf) return false
+                  if (inboxSearchQuery.trim()) {
+                    return (u.username || u.name || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())
+                  }
+                  return true
+                }).map(u => (
+                  <TouchableOpacity
+                    key={u._id || u.id}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 12,
+                      backgroundColor: theme.cardBg,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      gap: 12
+                    }}
+                    onPress={async () => {
+                      await handleSelectUserToChat(u)
+                      const newChatObj = {
+                        id: u._id || u.id,
+                        name: u.name || u.username,
+                        username: u.username,
+                        phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                        color: '#c8ff00',
+                        avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
+                        streak: 0,
+                        unread: 0
+                      }
+                      setShowChat(newChatObj)
+                    }}
+                  >
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+                      <UserAvatar
+                        avatar={u.avatar}
+                        size={44}
+                        textStyle={{ color: '#000', fontSize: 16, fontWeight: '900' }}
+                        fallback={(u.username || u.name || 'U')[0].toUpperCase()}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>@{u.username || u.name}</Text>
+                      <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
+                        {u.phone || u.phoneNumber || u.email || 'Registered Contact'}
+                      </Text>
+                    </View>
+                    <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
+                      <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>💬 Chat</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        </View>
+      )
+    }
+
+    // ── Render Status slide ──
+    if (activeTab === 'status') {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+
+          {/* Status List */}
+          <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
+            <View style={{ padding: 16, gap: 12 }}>
+              {/* My Status Update */}
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.cardBg,
+                  borderRadius: 16,
+                  padding: 14,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  gap: 12
+                }}
+                onPress={() => setShowCreateStatusModal(true)}
+              >
+                <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primary + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primary + '40', position: 'relative' }}>
+                  <Icon name="status" size={22} color={theme.primary} />
+                  <View style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ color: '#000', fontSize: 11, fontWeight: '900' }}>+</Text>
+                  </View>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>My Status Update</Text>
+                  <Text style={{ color: theme.subText, fontSize: 11 }}>Share a snap or text status</Text>
+                </View>
+              </TouchableOpacity>
+
+              <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 10, marginLeft: 4 }}>
+                RECENT UPDATES
+              </Text>
+
+              {/* Status List Fallback */}
+              <View style={{ padding: 30, alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 1, borderColor: theme.border }}>
+                <Icon name="status" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800', textAlign: 'center' }}>No recent updates</Text>
+                <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                  Status updates from your friends will appear here!
+                </Text>
               </View>
-            </ScrollView>
+            </View>
+          </ScrollView>
+        </View>
+      )
+    }
+
+    // ── Render Groups list ──
+    if (activeTab === 'groups') {
+      const groupChats = chatModeChats.filter(chat => chat.isGroup)
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+
+          {/* Search Bar */}
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.bg }}>
+            <TextInput
+              style={{
+                backgroundColor: theme.cardBg,
+                color: theme.text,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.border,
+                fontSize: 13
+              }}
+              placeholder="Search groups..."
+              placeholderTextColor="#4b5563"
+              value={inboxSearchQuery}
+              onChangeText={setInboxSearchQuery}
+            />
           </View>
-        </ScrollView>
-      </View>
-    ) : (
-        <ScrollView style={styles.content}>
+
+          <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
+            <View style={{ padding: 12, gap: 10 }}>
+              {/* Create Group Quick Button */}
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.cardBg,
+                  borderRadius: 16,
+                  padding: 14,
+                  borderWidth: 1,
+                  borderColor: theme.primary,
+                  gap: 12
+                }}
+                onPress={() => setShowCreateGroupModal(true)}
+              >
+                <Icon name="group_add" size={24} color={theme.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800' }}>
+                    Create New Group
+                  </Text>
+                  <Text style={{ color: theme.subText, fontSize: 11 }}>
+                    Chat with multiple friends at once
+                  </Text>
+                </View>
+                <View style={{ backgroundColor: theme.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}>
+                  <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>CREATE</Text>
+                </View>
+              </TouchableOpacity>
+
+              <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
+                MY GROUPS ({groupChats.length})
+              </Text>
+
+              {groupChats.length === 0 ? (
+                <View style={{ padding: 30, alignItems: 'center' }}>
+                  <Icon name="groups" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
+                  <Text style={{ color: theme.subText, fontSize: 13, textAlign: 'center' }}>
+                    No groups created yet. Tap Create New Group to start!
+                  </Text>
+                </View>
+              ) : (
+                groupChats.filter(chat => {
+                  if (inboxSearchQuery.trim()) {
+                    return chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())
+                  }
+                  return true
+                }).map(chat => (
+                  <TouchableOpacity
+                    key={chat.id}
+                    style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
+                    onPress={() => setShowChat(chat)}
+                  >
+                    <View style={[styles.chatAvatar, { backgroundColor: '#10b981' }]}>
+                      <Text style={styles.avatarText}>{chat.name[0]}</Text>
+                    </View>
+                    <View style={styles.chatInfo}>
+                      <Text style={[styles.chatName, { color: theme.text }]}>{chat.name}</Text>
+                      <Text style={[styles.chatLast, { color: theme.subText }]}>👥 Group Chat Session</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        </View>
+      )
+    }
+
+    // ── Render Social DMs (appMode === 'social' fallback) ──
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        {/* Header */}
+        <View style={{ flexDirection: 'row', backgroundColor: theme.cardBg, borderBottomWidth: 1, borderBottomColor: theme.border, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>Social DMs</Text>
+        </View>
+
+        <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
           <View style={[styles.adBanner, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
             <Text style={[styles.adText, { color: theme.subText }]}>📢 Social DMs & Updates</Text>
           </View>
-
-          {/* Social Mode User Search Results */}
           {inboxSearchQuery.trim() !== '' && (
             <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
               {(() => {
@@ -3061,12 +3166,12 @@ export default function App() {
             </TouchableOpacity>
           ))}
         </ScrollView>
-      )}
-    </View>
-  )
+      </View>
+    )
+  }
 
   const renderSettingsContent = () => (
-    <ScrollView style={styles.content}>
+    <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
       <View style={{ padding: 16, gap: 16 }}>
         {/* Profile Card Header in Settings */}
         <View style={{
@@ -3287,14 +3392,20 @@ export default function App() {
 
             {/* Sidebar Navigation */}
             <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1a1a24', gap: 6 }}>
-              {[
+              {(appMode === 'social' ? [
                 { id: 'feed', icon: 'home', label: 'Feed' },
                 { id: 'reels', icon: 'smart_display', label: 'Reels' },
-                { id: 'inbox', icon: 'inbox', label: 'Inbox' },
+                { id: 'inbox', icon: 'chat', label: 'Chats' },
                 { id: 'settings', icon: 'settings', label: 'Settings' },
                 { id: 'profile', icon: 'person', label: 'Profile' },
-                { id: 'refer', icon: 'redeem', label: 'Refer & Earn' },
-              ].map(tab => (
+                { id: 'refer', icon: 'refer', label: 'Refer & Earn' }
+              ] : [
+                { id: 'inbox', icon: 'chat', label: 'Chats' },
+                { id: 'status', icon: 'status', label: 'Status' },
+                { id: 'contacts', icon: 'contacts', label: 'Contacts' },
+                { id: 'groups', icon: 'groups', label: 'Groups' },
+                { id: 'profile', icon: 'person', label: 'Profile' }
+              ]).map(tab => (
                 <TouchableOpacity
                   key={tab.id}
                   style={{
@@ -3312,14 +3423,13 @@ export default function App() {
                     name={tab.icon}
                     size={20}
                     color={activeTab === tab.id ? '#c8ff00' : '#8b8ba7'}
-                    forceEmoji={true}
                   />
                   <Text style={{
                     color: activeTab === tab.id ? '#c8ff00' : '#f0f0ff',
                     fontSize: 14,
                     fontWeight: '700',
                   }}>
-                    {t(tab.id) || tab.label}
+                    {tab.id === 'inbox' ? t('chats') : (t(tab.id) || tab.label)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -3327,7 +3437,7 @@ export default function App() {
 
             {/* Contextual Sidebar Content */}
             <View style={{ flex: 1 }}>
-              {activeTab === 'inbox' && renderInboxContent()}
+              {(activeTab === 'inbox' || activeTab === 'contacts' || activeTab === 'status' || activeTab === 'groups') && renderInboxContent()}
               {activeTab === 'settings' && renderSettingsContent()}
               {activeTab === 'profile' && renderProfileContent()}
               {(activeTab === 'feed' || activeTab === 'reels' || activeTab === 'refer') && (
@@ -3415,23 +3525,40 @@ export default function App() {
           <View style={{ flex: 1 }}>
             {activeTab === 'feed' && renderFeedContent()}
             {activeTab === 'reels' && <ReelsScreen />}
-            {activeTab === 'inbox' && renderInboxContent()}
-            {activeTab === 'explore' && renderExploreContent()}
+            {(activeTab === 'inbox' || activeTab === 'contacts' || activeTab === 'status' || activeTab === 'groups') && renderInboxContent()}
+            {activeTab === 'explore' && appMode === 'social' && renderExploreContent()}
             {activeTab === 'settings' && renderSettingsContent()}
             {activeTab === 'refer' && <ReferScreen />}
             {activeTab === 'profile' && renderProfileContent()}
           </View>
 
           {/* Mobile Bottom Nav */}
-          <View style={[styles.bottomNav, { backgroundColor: theme.cardBg, borderTopColor: theme.border, paddingBottom: Math.max(10, insets.bottom) }]}>
-            {[
+          <View style={[
+            styles.bottomNav,
+            appMode === 'social' ? {
+              width: '92%',
+              maxWidth: 390,
+              gap: 16,
+              paddingHorizontal: 14,
+            } : {
+              width: '88%',
+              maxWidth: 320,
+              gap: 28,
+              paddingHorizontal: 20,
+            }
+          ]}>
+            {(appMode === 'social' ? [
               { id: 'feed', icon: 'home', label: 'Feed' },
               { id: 'reels', icon: 'smart_display', label: 'Reels' },
               { id: 'streak', icon: 'camera_alt', label: '', special: true },
               { id: 'explore', icon: 'search', label: 'Explore' },
               { id: 'settings', icon: 'settings', label: 'Settings' },
-            ].filter(tab => appMode === 'social' || (tab.id !== 'feed' && tab.id !== 'reels' && tab.id !== 'streak'))
-             .map(tab => (
+            ] : [
+              { id: 'inbox', icon: 'chat', label: 'Chats' },
+              { id: 'status', icon: 'status', label: 'Status' },
+              { id: 'contacts', icon: 'contacts', label: 'Contacts' },
+              { id: 'groups', icon: 'groups', label: 'Groups' },
+            ]).map(tab => (
               <TouchableOpacity
                 key={tab.id}
                 style={[styles.navBtn, tab.special && styles.navSpecial]}
@@ -3445,7 +3572,7 @@ export default function App() {
               >
                 <Icon
                   name={tab.icon}
-                  size={tab.special ? 26 : 22}
+                  size={tab.special ? 20 : 18}
                   color={
                     tab.special
                       ? '#050608'
@@ -3462,7 +3589,7 @@ export default function App() {
                     activeTab === tab.id && styles.navLabelActive,
                     activeTab === tab.id && { color: theme.primary }
                   ]}>
-                    {t(tab.id)}
+                    {t(tab.id) || tab.label}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -3656,6 +3783,22 @@ export default function App() {
               </Text>
             </TouchableOpacity>
 
+            {/* Reel toggle (Only shown when postType is video) */}
+            {postType === 'video' && (
+              <TouchableOpacity
+                style={[
+                  styles.anonToggle,
+                  shareAsReel && { backgroundColor: 'rgba(200, 255, 0, 0.15)', borderColor: '#c8ff00' }
+                ]}
+                onPress={() => setShareAsReel(!shareAsReel)}
+              >
+                <Text>🎥</Text>
+                <Text style={[styles.anonText, shareAsReel && { color: '#c8ff00' }]}>
+                  {shareAsReel ? 'Share as Reel (Will appear in Reels Section) ON' : 'Share as regular Video Post'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.VOIDInfoCard}>
               <Text style={styles.VOIDInfoTitle}>⚡ Post & earn VOID!</Text>
               <Text style={styles.VOIDInfoItem}>📝 Post → +40 VOID</Text>
@@ -3745,13 +3888,13 @@ export default function App() {
 
       {/* Chat Modal */}
       <Modal
-        visible={!!showChat || isCallActiveGlobally}
+        visible={(!isLargeScreen && !!showChat) || isCallActiveGlobally}
         animationType={showChat ? "slide" : "none"}
         transparent={!showChat}
         onRequestClose={() => setShowChat(false)}
       >
-        <View style={showChat ? { flex: 1, backgroundColor: '#000' } : { position: 'absolute', width: 0, height: 0, opacity: 0 }}>
-          {(!!showChat || (isCallActiveGlobally && activeCallContact)) && (
+        <View style={(!isLargeScreen && showChat) ? { flex: 1, backgroundColor: '#000' } : { position: 'absolute', width: 0, height: 0, opacity: 0 }}>
+          {((!isLargeScreen && !!showChat) || (isCallActiveGlobally && activeCallContact)) && (
             <ChatScreen
               contact={{ ...(showChat || activeCallContact), myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
               activeChats={chatModeChats}
@@ -7045,6 +7188,7 @@ export default function App() {
                 { icon: 'campaign', color: '#ec4899', label: 'Broadcast List', sub: 'Send mass message to contacts', action: () => { setShowChatOptionsMenu(false); Alert.alert('Broadcast List', 'Broadcast lists feature coming soon.'); } },
                 { icon: 'sync', color: '#f59e0b', label: 'Sync Contacts', sub: 'Scan phonebook for registered friends', action: () => { setShowChatOptionsMenu(false); handleSyncContacts(); } },
                 { icon: 'devices', color: '#8b5cf6', label: 'Linked Devices', sub: 'Manage multi-device web sessions', action: () => { setShowChatOptionsMenu(false); setShowDevicesModal(true); } },
+                { icon: 'settings', color: '#10b981', label: 'Settings', sub: 'Configure profile, themes & preferences', action: () => { setShowChatOptionsMenu(false); setActiveTab('settings'); } },
                 { icon: 'star', color: '#eab308', label: 'Starred Messages', sub: 'View bookmarked chat messages', action: async () => {
                   setShowChatOptionsMenu(false);
                   try {
@@ -7874,15 +8018,25 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     backgroundColor: '#060608',
+    height: Platform.OS === 'web' ? '100vh' : '100%',
+    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    overflow: 'hidden',
   },
   sidebarContainer: {
     width: 320,
+    height: '100%',
+    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    flexDirection: 'column',
     borderRightWidth: 1,
     borderRightColor: '#1a1a24',
     backgroundColor: '#0a0a0f',
+    position: 'relative',
   },
   mainContentContainer: {
     flex: 1,
+    height: '100%',
+    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    flexDirection: 'column',
     backgroundColor: '#060608',
   },
   desktopPlaceholder: {
@@ -8158,25 +8312,40 @@ const styles = StyleSheet.create({
 
   // ── Bottom Navigation ────────────────────────────────────────
   bottomNav: {
-    flexDirection: 'row', justifyContent: 'space-around',
-    alignItems: 'center', paddingVertical: 10, 
-    paddingBottom: Platform.OS === 'android' ? 28 : 18,
-    backgroundColor: '#08080c',
-    borderTopWidth: 1, borderTopColor: '#1a1a24',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 32,
+    paddingVertical: 5,
+    paddingHorizontal: 20,
+    position: 'absolute',
+    bottom: 10,
+    alignSelf: 'center',
+    borderRadius: 24,
+    backgroundColor: 'rgba(12, 12, 18, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+    width: '88%',
+    maxWidth: 320,
   },
-  navBtn:        { alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, minWidth: 52 },
+  navBtn:        { alignItems: 'center', paddingHorizontal: 6, paddingVertical: 2, minWidth: 48 },
   navSpecial: {
-    width: 56, height: 56, borderRadius: 28,
+    width: 42, height: 42, borderRadius: 21,
     backgroundColor: '#fffc00', // Snapchat Yellow
     justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#fffc00', shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.65, shadowRadius: 14, elevation: 12,
-    borderWidth: 2, borderColor: '#ffffff',
+    shadowColor: '#fffc00', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 10, elevation: 8,
+    borderWidth: 1.5, borderColor: '#ffffff',
   },
-  navIcon:        { fontSize: 22, color: '#3a3a5a' },
+  navIcon:        { fontSize: 18, color: '#3a3a5a' },
   navSpecialIcon: { color: '#050608', fontWeight: '900' },
   navActiveIcon:  { color: '#c8ff00' },
-  navLabel:       { fontSize: 10, color: '#3a3a5a', marginTop: 3, fontWeight: '600' },
+  navLabel:       { fontSize: 8.5, color: '#3a3a5a', marginTop: 1, fontWeight: '700' },
   navLabelActive: { color: '#c8ff00' },
 
   // ── Modals ──────────────────────────────────────────────────

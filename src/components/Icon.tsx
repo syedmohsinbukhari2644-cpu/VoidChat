@@ -56,6 +56,9 @@ const MAPPING: Record<string, string> = {
   videocam: 'videocam',
   security: 'security',
   group_add: 'group-add',
+  contacts: 'import-contacts',
+  status: 'donut-large',
+  settings: 'settings'
 }
 
 const EMOJI_MAPPING: Record<string, string> = {
@@ -105,7 +108,16 @@ const EMOJI_MAPPING: Record<string, string> = {
   security: '🛡️',
   group_add: '👥',
   search: '🔍',
-  settings: '⚙️'
+  settings: '⚙️',
+  storage: '💾',
+  folder: '📁',
+  devices: '💻',
+  battery_saver: '🔋',
+  language: '🌐',
+  star: '⭐',
+  payments: '🪙',
+  contacts: '🪪',
+  status: '🔥'
 }
 
 export default function Icon({ name, size = 22, color = '#ffffff', style, forceEmoji }: IconProps) {
@@ -135,7 +147,7 @@ export default function Icon({ name, size = 22, color = '#ffffff', style, forceE
     }
   }, [])
 
-  if (forceEmoji || (Platform.OS === 'web' && EMOJI_MAPPING[name])) {
+  if (forceEmoji) {
     const emoji = EMOJI_MAPPING[name] || '📌'
     return (
       <Text style={[{ fontSize: size * 0.85, textAlign: 'center', lineHeight: size + 2 }, style]}>

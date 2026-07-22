@@ -73,6 +73,8 @@ const BUBBLE_COLOR_SCHEMES = {
   crimson_red: { me: '#dc2626', them: '#1c0d0d' },
 }
 
+const FAST_CHAT_CACHE = new Map()
+
 export default function ChatScreen({
   contact,
   onBack,
@@ -2070,7 +2072,7 @@ export default function ChatScreen({
                                       backgroundColor: isPlaying
                                         ? (isActiveBar ? '#ffffff' : (isMe ? '#c8ff00' : '#c084fc'))
                                         : (isMe ? '#c8ff0060' : '#8b8ba750'),
-                                      shadowColor: isPlaying ? (isMe ? '#c8ff00' : '#a855f7') : 'transparent',
+                                      shadowColor: isPlaying ? (isMe ? '#c8ff00' : '#a855f7') : undefined,
                                       shadowOffset: { width: 0, height: 0 },
                                       shadowOpacity: 0.8,
                                       shadowRadius: 4
@@ -3110,7 +3112,7 @@ export default function ChatScreen({
                       borderRadius: 16,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      shadowColor: !isCancel && !isDestructive ? (theme.primary || '#c8ff00') : 'transparent',
+                      shadowColor: !isCancel && !isDestructive ? (theme.primary || '#c8ff00') : undefined,
                       shadowOffset: { width: 0, height: 4 },
                       shadowOpacity: 0.25,
                       shadowRadius: 10,
