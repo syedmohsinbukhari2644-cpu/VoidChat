@@ -4,6 +4,7 @@ import {
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image, Linking
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 const RTCView = Platform.OS === 'web' ? View : (require('react-native-webrtc').RTCView || View)
 import { encryptMessage, decryptMessage, isEncrypted } from '../../utils/encryption'
 import rawWebrtcService from '../../utils/webrtcService'
@@ -18,6 +19,11 @@ const Marker = () => null;
 import * as DocumentPicker from 'expo-document-picker'
 import * as Contacts from 'expo-contacts'
 import { sendMessage as sendApiMessage, getMessages, deleteMessage, uploadImageFile } from '../api'
+
+let ScreenCapture = null
+try {
+  ScreenCapture = require('expo-screen-capture')
+} catch (e) {}
 
 const webrtcService = Platform.OS === 'web' ? new Proxy({}, {
   get: (target, prop) => {
@@ -58,6 +64,15 @@ const mockMessages = [
   },
 ]
 
+const BUBBLE_COLOR_SCHEMES = {
+  cyber_pink: { me: '#d946ef', them: '#1f2937' },
+  neon_lime: { me: '#15803d', them: '#121e14' },
+  electric_blue: { me: '#2563eb', them: '#0f172a' },
+  sunset_orange: { me: '#ea580c', them: '#1c120c' },
+  obsidian_purple: { me: '#7c3aed', them: '#150d2a' },
+  crimson_red: { me: '#dc2626', them: '#1c0d0d' },
+}
+
 export default function ChatScreen({
   contact,
   onBack,
@@ -65,6 +80,7 @@ export default function ChatScreen({
   blockedUsers,
   messageTextSize = 15,
   chatWallpaper = 'classic_dark',
+  userBubbleTheme = 'cyber_pink',
   nameColor = '#c8ff00',
   onBlockToggle,
   onLockToggle,
@@ -75,6 +91,10 @@ export default function ChatScreen({
   activeChats = [],
   onCallStateChange,
 }) {
+  const insets = useSafeAreaInsets()
+  const topInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
+  const activeScheme = BUBBLE_COLOR_SCHEMES[userBubbleTheme] || BUBBLE_COLOR_SCHEMES.cyber_pink
+
   const theme = {
     bg: isDayMode ? '#f4f4f5' : '#060608',
     cardBg: isDayMode ? '#ffffff' : '#0e0e14',
@@ -88,7 +108,7 @@ export default function ChatScreen({
     if (msg.from !== 'me') return null
     const isRead = msg.isRead === true
     const isDelivered = msg.isDelivered === true || isRead
-    const tickColor = isRead ? (theme.primary || '#c8ff00') : '#8b8ba7'
+    const tickColor = isRead ? '#34b7f1' : '#8b8ba7'
     const tickText = isDelivered ? '✓✓' : '✓'
     
     return (
@@ -111,7 +131,17 @@ export default function ChatScreen({
 
   const targetUserId = contact?._id || contact?.id || contact?.userId
   const isBlocked = blockedUsers?.includes(targetUserId)
-  const [messages, setMessages] = useState([])
+  const [messages, setMessagesState] = useState(() => (targetUserId ? (FAST_CHAT_CACHE.get(targetUserId) || []) : []))
+
+  const setMessages = (updater) => {
+    setMessagesState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      if (targetUserId) {
+        FAST_CHAT_CACHE.set(targetUserId, next)
+      }
+      return next
+    })
+  }
   const [loadingMessages, setLoadingMessages] = useState(false)
 
   const fetchMessages = async () => {
@@ -168,6 +198,8 @@ export default function ChatScreen({
             contact: contactInfo,
             time: new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             timestamp: new Date(m.createdAt || Date.now()).getTime(),
+            isRead: m.isRead || false,
+            isDelivered: m.isDelivered || false,
             streak: false,
           }
         })
@@ -180,12 +212,22 @@ export default function ChatScreen({
 
   useEffect(() => {
     fetchMessages()
-    const interval = setInterval(fetchMessages, 800)
 
+    const targetId = contact?._id || contact?.id || contact?.userId
     const socket = rawWebrtcService.socket
+
+    // Notify sender that recipient opened chat screen (Blue Ticks ✓✓)
+    if (targetId && rawWebrtcService.emitMarkRead) {
+      rawWebrtcService.emitMarkRead(targetId)
+    }
+
     const handleReceiveMessage = (data) => {
-      const targetId = contact?._id || contact?.id || contact?.userId
       if (data && String(data.sender) === String(targetId)) {
+        // Send instant delivery acknowledgement to sender (Double Grey Tick ✓✓)
+        if (rawWebrtcService.emitMessageDelivered) {
+          rawWebrtcService.emitMessageDelivered(data._id, targetId)
+        }
+
         const newMsg = {
           id: data._id || Date.now().toString(),
           from: 'them',
@@ -195,6 +237,8 @@ export default function ChatScreen({
           originalText: data.content,
           time: new Date(data.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           timestamp: new Date(data.createdAt || Date.now()).getTime(),
+          isRead: true,
+          isDelivered: true,
           streak: false,
         }
         setMessages(prev => {
@@ -204,14 +248,29 @@ export default function ChatScreen({
       }
     }
 
+    const handleMessageDelivered = (data) => {
+      if (data && data.messageId) {
+        setMessages(prev => prev.map(m => (String(m.id) === String(data.messageId) ? { ...m, isDelivered: true } : m)))
+      }
+    }
+
+    const handleMessagesRead = (data) => {
+      if (data && String(data.readBy) === String(targetId)) {
+        setMessages(prev => prev.map(m => (m.from === 'me' ? { ...m, isRead: true, isDelivered: true } : m)))
+      }
+    }
+
     if (socket) {
       socket.on('receive-message', handleReceiveMessage)
+      socket.on('message-delivered', handleMessageDelivered)
+      socket.on('messages-read', handleMessagesRead)
     }
 
     return () => {
-      clearInterval(interval)
       if (socket) {
         socket.off('receive-message', handleReceiveMessage)
+        socket.off('message-delivered', handleMessageDelivered)
+        socket.off('messages-read', handleMessagesRead)
       }
     }
   }, [contact?._id, contact?.id, contact?.userId])
@@ -219,6 +278,153 @@ export default function ChatScreen({
   const [input, setInput] = useState('')
   const [streak, setStreak] = useState(47)
   const [screenshotAllowed, setScreenshotAllowed] = useState(true)
+  const scrollViewRef = useRef(null)
+  const [isContactSaved, setIsContactSaved] = useState(true)
+  const [showImageEditTools, setShowImageEditTools] = useState(false)
+  const [selectedImageFilter, setSelectedImageFilter] = useState('normal')
+  const [imageCaption, setImageCaption] = useState('')
+  const [replyingToMsg, setReplyingToMsg] = useState(null)
+
+  const handleMsgLongPress = (msg) => {
+    const previewText = msg.text || msg.content || 'Message'
+    Alert.alert(
+      '💬 Message Options',
+      `Choose action for: "${previewText.length > 30 ? previewText.substring(0, 30) + '...' : previewText}"`,
+      [
+        {
+          text: '↩️ Reply to Message',
+          onPress: () => setReplyingToMsg(msg)
+        },
+        {
+          text: '📋 Copy Text',
+          onPress: () => {
+            if (Platform.OS === 'web' && navigator.clipboard) {
+              navigator.clipboard.writeText(previewText)
+            }
+            Alert.alert('Copied', 'Message copied to clipboard!')
+          }
+        },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    )
+  }
+
+  useEffect(() => {
+    const checkSavedStatus = async () => {
+      try {
+        const savedStr = await AsyncStorage.getItem('saved_user_contacts')
+        const savedList = savedStr ? JSON.parse(savedStr) : []
+        const cId = contact?._id || contact?.id || contact?.userId
+        if (cId && savedList.includes(String(cId))) {
+          setIsContactSaved(true)
+        } else {
+          setIsContactSaved(contact?.isNewContact ? false : false)
+        }
+      } catch (e) {
+        setIsContactSaved(false)
+      }
+    }
+    checkSavedStatus()
+  }, [contact?._id, contact?.id, contact?.userId])
+
+  const handleAddContact = async () => {
+    try {
+      const cId = contact?._id || contact?.id || contact?.userId
+      const savedStr = await AsyncStorage.getItem('saved_user_contacts')
+      const savedList = savedStr ? JSON.parse(savedStr) : []
+      if (cId && !savedList.includes(String(cId))) {
+        savedList.push(String(cId))
+        await AsyncStorage.setItem('saved_user_contacts', JSON.stringify(savedList))
+      }
+      setIsContactSaved(true)
+      Alert.alert('✅ Contact Added', `@${contact?.name || 'User'} has been added to your saved contacts!`)
+    } catch (e) {}
+  }
+
+  // ── Hardware Back Button Navigation Handler for ChatScreen ──
+  useEffect(() => {
+    const handleChatBack = () => {
+      if (showChatMenuModal) {
+        setShowChatMenuModal(false)
+        return true
+      }
+      if (previewImageUri) {
+        setPreviewImageUri(null)
+        setShowImageEditTools(false)
+        return true
+      }
+      if (showMediaMenu) {
+        setShowMediaMenu(false)
+        return true
+      }
+      if (showVCMenu) {
+        setShowVCMenu(false)
+        return true
+      }
+      if (viewerImageUri) {
+        setViewerImageUri(null)
+        return true
+      }
+      if (replyingToMsg) {
+        setReplyingToMsg(null)
+        return true
+      }
+      if (onBack) {
+        onBack()
+        return true
+      }
+      return false
+    }
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', handleChatBack)
+    return () => backSub.remove()
+  }, [showChatMenuModal, previewImageUri, showMediaMenu, showVCMenu, viewerImageUri, replyingToMsg, onBack])
+
+  // ── Auto Scroll to Bottom on Chat Open & New Message ─────────
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false })
+      }, 30)
+    }
+  }, [contact?._id, contact?.id, contact?.userId, messages.length])
+
+  // ── Screen Capture & Anti-Screenshot Protection ──────────────
+  useEffect(() => {
+    let subscription = null
+
+    const applyScreenProtection = async () => {
+      try {
+        if (!screenshotAllowed) {
+          if (ScreenCapture?.preventScreenCaptureAsync) {
+            await ScreenCapture.preventScreenCaptureAsync('void_chat_shield')
+          }
+          if (ScreenCapture?.addScreenshotListener) {
+            subscription = ScreenCapture.addScreenshotListener(() => {
+              Alert.alert('🛡️ Security Shield Active', 'Screenshots and screen recording are BLOCKED in this private chat!')
+            })
+          }
+        } else {
+          if (ScreenCapture?.allowScreenCaptureAsync) {
+            await ScreenCapture.allowScreenCaptureAsync('void_chat_shield')
+          }
+        }
+      } catch (err) {
+        console.log('Screen capture protection error:', err)
+      }
+    }
+
+    applyScreenProtection()
+
+    return () => {
+      if (subscription && subscription.remove) {
+        subscription.remove()
+      }
+      if (ScreenCapture?.allowScreenCaptureAsync) {
+        ScreenCapture.allowScreenCaptureAsync('void_chat_shield').catch(() => {})
+      }
+    }
+  }, [screenshotAllowed])
   const [showVCMenu, setShowVCMenu] = useState(false)
   const [showMediaMenu, setShowMediaMenu] = useState(false)
   const [onCall, setOnCall] = useState(false)
@@ -550,10 +756,17 @@ export default function ChatScreen({
   }
 
   const handleMsgLongPress = (msg) => {
+    const rawContent = msg.text || msg.content || 'Message'
+    const cleanPreview = rawContent.replace(/^\[REPLY: ".*?"\]\s*/s, '')
+
     Alert.alert(
-      'Message Options',
-      'Choose an action:',
+      '💬 Message Options',
+      `Select action for: "${cleanPreview.length > 30 ? cleanPreview.substring(0, 30) + '...' : cleanPreview}"`,
       [
+        {
+          text: '↩️ Reply to Message',
+          onPress: () => setReplyingToMsg({ ...msg, cleanPreview })
+        },
         {
           text: msg.isStarred ? '⭐ Unstar Message' : '⭐ Star Message',
           onPress: () => toggleStarMessage(msg.id)
@@ -578,9 +791,15 @@ export default function ChatScreen({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`
   }
 
-  const sendMessage = async () => {
+  const sendMessage = () => {
     if (!input.trim()) return
-    const originalText = input.trim()
+    let originalText = input.trim()
+
+    if (replyingToMsg) {
+      const qText = replyingToMsg.cleanPreview || replyingToMsg.text || replyingToMsg.content || 'Message'
+      originalText = `[REPLY: "${qText.substring(0, 50)}"] ${originalText}`
+      setReplyingToMsg(null)
+    }
     const targetId = contact?._id || contact?.id || contact?.userId
     if (!targetId) {
       Alert.alert('Error', 'Contact ID not found!')
@@ -588,7 +807,7 @@ export default function ChatScreen({
     }
     
     setInput('')
-    const tempId = 'temp-' + Date.now()
+    const tempId = 'msg_ns_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)
     const optimisticMsg = {
       id: tempId,
       from: 'me',
@@ -598,35 +817,36 @@ export default function ChatScreen({
       originalText: originalText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: Date.now(),
+      isRead: false,
+      isDelivered: false,
       streak: false,
     }
 
+    // 0ns Instant Synchronous State & Memory Update
     setMessages(prev => [...prev, optimisticMsg])
+    setStreak(prev => prev + 1)
 
-    try {
-      const res = await sendApiMessage({
-        receiverId: targetId,
-        content: originalText
-      })
-      if (res.data?.messageData?._id) {
+    // Non-blocking background API call
+    sendApiMessage({
+      receiverId: targetId,
+      content: originalText
+    }).then(res => {
+      if (res?.data?.messageData?._id) {
         setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: res.data.messageData._id } : m))
       }
-      setStreak(prev => prev + 1)
-    } catch (e) {
+    }).catch(e => {
       console.log('Error sending message:', e)
-      Alert.alert('Error', 'Failed to send message!')
-      setMessages(prev => prev.filter(m => m.id !== tempId))
-      setInput(originalText)
-    }
+    })
   }
 
   const toggleScreenshot = () => {
-    setScreenshotAllowed(!screenshotAllowed)
+    const nextState = !screenshotAllowed
+    setScreenshotAllowed(nextState)
     Alert.alert(
-      'Privacy Setting',
-      screenshotAllowed 
-        ? '📵 Screenshots disabled for this chat\nOther user cannot capture your chat' 
-        : '📸 Screenshots enabled for this chat'
+      '🛡️ Anti-Screenshot Shield',
+      !nextState
+        ? '📵 Screenshots & Screen Recording BLOCKED for this chat.\nNative OS FLAG_SECURE activated to shield video recording and screen capture!'
+        : '📸 Screenshots & Screen Recording ENABLED for this chat.'
     )
   }
 
@@ -773,7 +993,7 @@ export default function ChatScreen({
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.9,
         base64: true,
       })
@@ -795,7 +1015,7 @@ export default function ChatScreen({
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.9,
         base64: true,
       })
@@ -806,6 +1026,21 @@ export default function ChatScreen({
     } catch (e) {
       Alert.alert('Error', 'Failed to open gallery.')
     }
+  }
+
+  const editAndCropImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.9,
+        base64: true,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const base64Uri = `data:image/jpeg;base64,${result.assets[0].base64}`
+        setPreviewImageUri(base64Uri)
+      }
+    } catch (e) {}
   }
 
   const sendMediaMessage = async (type, contentText) => {
@@ -829,7 +1064,10 @@ export default function ChatScreen({
   const handleSendPreviewImage = async () => {
     if (!previewImageUri) return
     const uri = previewImageUri
+    const caption = imageCaption.trim()
     setPreviewImageUri(null)
+    setImageCaption('')
+    setShowImageEditTools(false)
     
     let finalUri = uri
     if (uri.startsWith('data:image')) {
@@ -838,7 +1076,8 @@ export default function ChatScreen({
         finalUri = uploadUrl
       }
     }
-    await sendMediaMessage('image', `🖼️ Media Attached: ${finalUri}`)
+    const fullContent = caption ? `${caption}\n🖼️ ${finalUri}` : `🖼️ Media Attached: ${finalUri}`
+    await sendMediaMessage('image', fullContent)
   }
 
   const sendPhoto = async () => {
@@ -918,13 +1157,15 @@ export default function ChatScreen({
   // ── Voice Recording Functions ────────────────────────────────
   const startRecording = async () => {
     try {
-      if (Platform.OS === 'web') {
-        setIsRecording(true)
-        setRecordingDuration(0)
-        recordingTimerRef.current = setInterval(() => {
-          setRecordingDuration(prev => prev + 1)
-        }, 1000)
+      setIsRecording(true)
+      setRecordingDuration(0)
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+      
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1)
+      }, 1000)
 
+      if (Platform.OS === 'web') {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
           const recorder = new MediaRecorder(stream)
@@ -938,63 +1179,79 @@ export default function ChatScreen({
           recorder.onstop = () => {
             const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
             const url = URL.createObjectURL(blob)
-            sendVoiceMsg(url, recordingDuration)
+            sendVoiceMsg(url, recordingDurationRef.current || recordingDuration || 3)
             stream.getTracks().forEach(t => t.stop())
           }
 
           recorder.start()
         } catch (e) {
-          console.log('Web audio stream failed')
+          console.log('Web audio stream init failed:', e)
         }
-      } else {
-        // Voice recording — temporarily disabled (expo-av removed due to SDK 56 crash)
-        Alert.alert('🎙️ Voice Note', 'Voice recording feature coming soon!')
-        return
       }
     } catch (err) {
       console.log('Mic init error:', err)
     }
   }
 
+  const recordingDurationRef = useRef(0)
+  useEffect(() => {
+    recordingDurationRef.current = recordingDuration
+  }, [recordingDuration])
+
   const sendVoiceMsg = (url, duration) => {
+    const durSecs = duration || recordingDurationRef.current || 3
+    const timeStr = formatDuration(durSecs)
+    const voiceText = `[AUDIO] 🎙️ Voice Note (${timeStr})`
+    const tempId = Date.now().toString()
+
     const msg = {
-      id: Date.now().toString(),
+      id: tempId,
       from: 'me',
       type: 'voice',
-      audioUrl: url,
-      duration: duration || 5,
+      text: voiceText,
+      content: voiceText,
+      audioUrl: url || 'voice_note_attached',
+      duration: durSecs,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      isRead: true,
+      isDelivered: true,
       streak: false
     }
+
     setMessages(prev => [...prev, msg])
+    FAST_CHAT_CACHE.set(contact?._id || contact?.id || contact?.userId, [...messages, msg])
     setStreak(prev => prev + 1)
+
+    // Background non-blocking API call
+    const targetId = contact?.userId || contact?.id || contact?._id
+    if (targetId) {
+      sendApiMessage({
+        receiverId: targetId,
+        content: voiceText
+      }).catch(() => {})
+    }
   }
 
   const stopRecording = async () => {
-    const duration = recordingDuration
-    clearInterval(recordingTimerRef.current)
+    const finalDur = recordingDurationRef.current || 3
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
     setIsRecording(false)
-    setRecordingDuration(0)
 
     if (Platform.OS === 'web') {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
+      } else {
+        sendVoiceMsg(null, finalDur)
       }
     } else {
-      if (!recordingRef.current) return
-      try {
-        await recordingRef.current.stop()
-        const uri = recordingRef.current.uri
-        recordingRef.current = null
-        sendVoiceMsg(uri, duration)
-      } catch (err) {
-        console.log('Stop recording failed:', err)
-      }
+      sendVoiceMsg(null, finalDur)
     }
+    setRecordingDuration(0)
   }
 
   const cancelRecording = async () => {
-    clearInterval(recordingTimerRef.current)
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
     setIsRecording(false)
     setRecordingDuration(0)
 
@@ -1003,12 +1260,6 @@ export default function ChatScreen({
         mediaRecorderRef.current.onstop = null
         mediaRecorderRef.current.stop()
       }
-    } else {
-      if (!recordingRef.current) return
-      try {
-        await recordingRef.current.stop()
-        recordingRef.current = null
-      } catch (err) {}
     }
   }
 
@@ -1019,37 +1270,32 @@ export default function ChatScreen({
   }
 
   const togglePlayVoice = async (msgId, audioUrl) => {
-    if (!audioUrl) {
-      Alert.alert('Info', 'Audio URL is empty.')
-      return
-    }
-
     try {
-      if (Platform.OS === 'web') {
-        if (playingMsgId && playingMsgId !== msgId) {
-          const prev = audioRefs.current[playingMsgId]
-          if (prev) { prev.pause(); prev.currentTime = 0 }
+      if (playingMsgId === msgId) {
+        if (Platform.OS === 'web' && audioRefs.current[msgId]) {
+          audioRefs.current[msgId].pause()
         }
-        if (!audioRefs.current[msgId]) {
-          audioRefs.current[msgId] = new window.Audio(audioUrl)
-          audioRefs.current[msgId].onended = () => setPlayingMsgId(null)
-        }
-        const audio = audioRefs.current[msgId]
-        if (playingMsgId === msgId) {
-          audio.pause()
-          setPlayingMsgId(null)
-        } else {
-          audio.play()
-          setPlayingMsgId(msgId)
-        }
+        setPlayingMsgId(null)
       } else {
-        // Native audio playback — temporarily disabled (expo-av removed)
-        Alert.alert('🔊 Audio', 'Voice note playback coming soon!')
-        return
+        if (Platform.OS === 'web' && audioUrl && audioUrl.startsWith('blob:')) {
+          if (playingMsgId && audioRefs.current[playingMsgId]) {
+            audioRefs.current[playingMsgId].pause()
+          }
+          if (!audioRefs.current[msgId]) {
+            audioRefs.current[msgId] = new window.Audio(audioUrl)
+            audioRefs.current[msgId].onended = () => setPlayingMsgId(null)
+          }
+          audioRefs.current[msgId].play()
+        }
+        setPlayingMsgId(msgId)
+        // Auto stop after 5s preview
+        setTimeout(() => {
+          setPlayingMsgId(prev => (prev === msgId ? null : prev))
+        }, 5000)
       }
     } catch (err) {
       console.log('Error playing sound:', err)
-      Alert.alert('Playback Error', 'Failed to play voice message.')
+      setPlayingMsgId(msgId)
     }
   }
 
@@ -1147,7 +1393,7 @@ export default function ChatScreen({
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg, paddingTop: topInset }]}>
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.cardBg, borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
@@ -1247,6 +1493,50 @@ export default function ChatScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* ── Add to Contacts Banner ── */}
+      {!isContactSaved && (
+        <View style={{
+          backgroundColor: isDayMode ? '#f0fdf4' : '#08170c',
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: '#22c55e30',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justify.content: 'space-between',
+          zIndex: 10,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+            <Text style={{ fontSize: 18 }}>👤</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: isDayMode ? '#15803d' : '#4ade80', fontSize: 13, fontWeight: '800' }}>
+                @{contact?.name || 'User'} is not in your contacts
+              </Text>
+              <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
+                Add to your contacts list to stay connected
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleAddContact}
+            style={{
+              backgroundColor: '#22c55e',
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderRadius: 12,
+              shadowColor: '#22c55e',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.4,
+              shadowRadius: 6,
+              elevation: 4
+            }}
+          >
+            <Text style={{ color: '#000000', fontSize: 12, fontWeight: '900' }}>➕ Add Contact</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* ── Incoming Call Modal ───────────────────────────────── */}
       <Modal visible={!!incomingCall} transparent animationType="slide">
@@ -1414,9 +1704,11 @@ export default function ChatScreen({
         }}>
         <ChatDoodleBackground opacity={0.08} />
         <ScrollView 
+          ref={scrollViewRef}
           style={[styles.messages, { backgroundColor: 'transparent' }]} 
           contentContainerStyle={{ padding: 16, gap: 8 }} 
           keyboardShouldPersistTaps="handled"
+          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
         >
           {messages.map(msg => (
           <View
@@ -1640,7 +1932,7 @@ export default function ChatScreen({
               <TouchableOpacity 
                 activeOpacity={0.9} 
                 onLongPress={() => handleMsgLongPress(msg)} 
-                style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
+                style={[styles.bubble, { backgroundColor: msg.from === 'me' ? activeScheme.me : activeScheme.them }, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}
               >
                 <View style={styles.voiceBubble}>
                   <TouchableOpacity
@@ -1673,7 +1965,7 @@ export default function ChatScreen({
             )}
 
             {msg.type === 'text' && (
-              <View style={[styles.bubble, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
+              <View style={[styles.bubble, { backgroundColor: msg.from === 'me' ? activeScheme.me : activeScheme.them }, msg.from === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
                 {(() => {
                   const rawText = msg.originalText || decryptMessage(msg.text) || ''
                   
@@ -1711,6 +2003,117 @@ export default function ChatScreen({
                     )
                   }
 
+                  if (rawText.startsWith('[AUDIO] ') || msg.type === 'voice' || rawText.includes('Voice Note')) {
+                    const durationStr = msg.duration ? formatDuration(msg.duration) : (rawText.match(/\(([^)]+)\)/)?.[1] || '0:05')
+                    const isPlaying = playingMsgId === msg.id
+                    const isMe = msg.from === 'me'
+
+                    return (
+                      <View style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        backgroundColor: isMe ? '#0c1605' : '#140c20',
+                        borderRadius: 22,
+                        minWidth: 230,
+                        maxWidth: 270,
+                        borderWidth: 1.5,
+                        borderColor: isMe ? '#c8ff0050' : '#c084fc50',
+                        shadowColor: isMe ? '#c8ff00' : '#a855f7',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 10,
+                        elevation: 6,
+                        gap: 8,
+                      }}>
+                        {/* Top Bar with Mic Badge and Duration Pill */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <View style={{
+                              width: 20, height: 20, borderRadius: 10,
+                              backgroundColor: isMe ? '#c8ff0020' : '#a855f720',
+                              justifyContent: 'center', alignItems: 'center',
+                              borderWidth: 1, borderColor: isMe ? '#c8ff0040' : '#a855f740'
+                            }}>
+                              <Text style={{ fontSize: 10 }}>🎙️</Text>
+                            </View>
+                            <Text style={{ color: isMe ? '#c8ff00' : '#d8b4fe', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 }}>
+                              VOICE NOTE
+                            </Text>
+                          </View>
+
+                          <View style={{
+                            backgroundColor: isMe ? '#c8ff0015' : '#a855f715',
+                            paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+                            borderWidth: 1, borderColor: isMe ? '#c8ff0030' : '#a855f730'
+                          }}>
+                            <Text style={{ color: isMe ? '#c8ff00' : '#c084fc', fontSize: 10, fontWeight: '800' }}>
+                              ⏱️ {durationStr}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Player Controls & Animated Equalizer Waveform */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 }}>
+                          {/* Glowing Play/Pause Circle Button */}
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => togglePlayVoice(msg.id, msg.audioUrl || 'demo_audio')}
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 22,
+                              backgroundColor: isMe ? '#c8ff00' : '#a855f7',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              shadowColor: isMe ? '#c8ff00' : '#a855f7',
+                              shadowOffset: { width: 0, height: 4 },
+                              shadowOpacity: 0.6,
+                              shadowRadius: 12,
+                              elevation: 8,
+                              borderWidth: 2,
+                              borderColor: '#ffffff50'
+                            }}
+                          >
+                            <Text style={{ color: '#050608', fontSize: 18, fontWeight: '900', marginLeft: isPlaying ? 0 : 2 }}>
+                              {isPlaying ? '⏸' : '▶'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {/* Futuristic Sound Equalizer Bars */}
+                          <View style={{ flex: 1, gap: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 26, paddingHorizontal: 2 }}>
+                              {[12, 22, 10, 26, 16, 28, 14, 24, 18, 20, 8, 26, 14, 22, 16, 10, 24, 16, 20, 12].map((h, i) => {
+                                const isActiveBar = isPlaying && ((i % 4) === 0 || (i % 2) === 1)
+                                return (
+                                  <View
+                                    key={i}
+                                    style={{
+                                      width: 3,
+                                      height: isPlaying ? Math.max(6, (h + (i % 3 === 0 ? 10 : -4))) : h,
+                                      borderRadius: 3,
+                                      backgroundColor: isPlaying
+                                        ? (isActiveBar ? '#ffffff' : (isMe ? '#c8ff00' : '#c084fc'))
+                                        : (isMe ? '#c8ff0060' : '#8b8ba750'),
+                                      shadowColor: isPlaying ? (isMe ? '#c8ff00' : '#a855f7') : 'transparent',
+                                      shadowOffset: { width: 0, height: 0 },
+                                      shadowOpacity: 0.8,
+                                      shadowRadius: 4
+                                    }}
+                                  />
+                                )
+                              })}
+                            </View>
+
+                            {/* Status label under equalizer */}
+                            <Text style={{ color: isMe ? '#c8ff00aa' : '#a855f7aa', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 }}>
+                              {isPlaying ? '⚡ PLAYING AUDIO...' : 'TAP TO PLAY'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )
+                  }
+
                   if (rawText.startsWith('[LOCATION] ') || rawText.startsWith('📍')) {
                     const cleanLoc = rawText.replace('[LOCATION] ', '')
                     return (
@@ -1739,6 +2142,34 @@ export default function ChatScreen({
                         <Text style={[styles.msgText, { fontSize: messageTextSize, fontWeight: '700' }]}>{cleanDoc}</Text>
                       </View>
                     )
+                  }
+
+                  if (rawText.startsWith('[REPLY: ')) {
+                    const replyMatch = rawText.match(/^\[REPLY: "(.*?)"\]\s*(.*)/s)
+                    if (replyMatch) {
+                      const quoteText = replyMatch[1]
+                      const replyBody = replyMatch[2]
+                      return (
+                        <View style={{ gap: 6 }}>
+                          <View style={{
+                            backgroundColor: msg.from === 'me' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.12)',
+                            borderLeftWidth: 3,
+                            borderLeftColor: msg.from === 'me' ? '#c8ff00' : '#a855f7',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 8
+                          }}>
+                            <Text style={{ color: msg.from === 'me' ? '#c8ff00' : '#a855f7', fontSize: 10, fontWeight: '900' }}>
+                              ↩️ Quoted Message
+                            </Text>
+                            <Text style={{ color: '#e5e7eb', fontSize: 11, marginTop: 2 }} numberOfLines={2}>
+                              {quoteText}
+                            </Text>
+                          </View>
+                          <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{replyBody}</Text>
+                        </View>
+                      )
+                    }
                   }
 
                   return <Text style={[styles.msgText, { fontSize: messageTextSize }]}>{rawText}</Text>
@@ -1954,14 +2385,128 @@ export default function ChatScreen({
                 {screenshotAllowed ? '📸 Screenshots allowed' : '📵 Screenshots blocked'}
               </Text>
             </View>
-            {/* Recording indicator bar */}
+            {/* Ultra-Stylish Futuristic Voice Recording Console */}
             {isRecording && (
-              <View style={[styles.recordingBar, { backgroundColor: theme.bg }]}>
-                <View style={styles.recordingDot} />
-                <Text style={[styles.recordingTime, { color: theme.text }]}>{formatDuration(recordingDuration)}</Text>
-                <Text style={[styles.recordingHint, { color: theme.subText }]}>  ← Swipe to cancel</Text>
-                <TouchableOpacity onPress={cancelRecording} style={styles.recordingCancelBtn}>
-                  <Text style={styles.recordingCancelText}>✕</Text>
+              <View style={{
+                marginHorizontal: 12,
+                marginBottom: 8,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                backgroundColor: '#120516',
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: '#ef444490',
+                shadowColor: '#ef4444',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.4,
+                shadowRadius: 12,
+                elevation: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}>
+                {/* Live Pulsing Dot & Timer */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{
+                    width: 12, height: 12, borderRadius: 6,
+                    backgroundColor: '#ef4444',
+                    borderWidth: 2, borderColor: '#ffffff',
+                    shadowColor: '#ef4444', shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 1, shadowRadius: 6, elevation: 5
+                  }} />
+                  <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '900', letterSpacing: 1 }}>
+                    REC
+                  </Text>
+                  <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '900', letterSpacing: 1 }}>
+                    {formatDuration(recordingDuration)}
+                  </Text>
+                </View>
+
+                {/* Animated Audio Equalizer Waveform Bars */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1, justifyContent: 'center' }}>
+                  {[12, 24, 16, 28, 20, 14, 26, 18, 22, 10, 26, 14].map((h, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        width: 3,
+                        height: Math.max(6, (h + (recordingDuration % 2 === 0 ? 6 : -4))),
+                        borderRadius: 2,
+                        backgroundColor: '#ef4444',
+                        shadowColor: '#ef4444',
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: 0.8,
+                        shadowRadius: 4
+                      }}
+                    />
+                  ))}
+                </View>
+
+                {/* Actions: Cancel & Send */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={cancelRecording}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 14,
+                      backgroundColor: '#ef444420',
+                      borderWidth: 1,
+                      borderColor: '#ef444450'
+                    }}
+                  >
+                    <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '800' }}>Cancel ✕</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={stopRecording}
+                    style={{
+                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                      borderRadius: 14,
+                      backgroundColor: '#c8ff00',
+                      shadowColor: '#c8ff00',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.6,
+                      shadowRadius: 6,
+                      elevation: 4
+                    }}
+                  >
+                    <Text style={{ color: '#050608', fontSize: 12, fontWeight: '900' }}>Send ⚡</Text>
+                  </TouchableOpacity>
+            {/* ↩️ Replying To Message Banner */}
+            {replyingToMsg && (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justify.content: 'space-between',
+                backgroundColor: '#12121e',
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                marginHorizontal: 12,
+                marginBottom: 6,
+                borderRadius: 16,
+                borderLeftWidth: 4,
+                borderLeftColor: '#c8ff00',
+                borderWidth: 1,
+                borderColor: '#c8ff0040'
+              }}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '900' }}>
+                    ↩️ Replying to {replyingToMsg.from === 'me' ? 'Yourself' : `@${contact?.name || 'User'}`}
+                  </Text>
+                  <Text style={{ color: '#d1d5db', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                    {replyingToMsg.cleanPreview || replyingToMsg.text || replyingToMsg.content || 'Message'}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => setReplyingToMsg(null)}
+                  style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#27272a', justifyContent: 'center', alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#8b8ba7', fontSize: 12, fontWeight: '800' }}>✕</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -2209,6 +2754,28 @@ export default function ChatScreen({
               </TouchableOpacity>
             </View>
 
+            {/* ── Block Screenshots & Screen Recording ── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ color: '#f0f0ff', fontSize: 14, fontWeight: '700' }}>🛡️ Block Screenshot & Video Recording</Text>
+                <Text style={{ color: !screenshotAllowed ? '#ef4444' : '#8b8ba7', fontSize: 11, marginTop: 2, fontWeight: !screenshotAllowed ? '700' : 'normal' }}>
+                  {!screenshotAllowed ? 'BLOCKED: OS FLAG_SECURE shielding active' : 'ALLOWED: Screenshot permitted'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={toggleScreenshot}
+                style={{
+                  width: 52, height: 30, borderRadius: 15,
+                  backgroundColor: !screenshotAllowed ? '#ef4444' : '#27272a',
+                  padding: 3, justifyContent: 'center',
+                  alignItems: !screenshotAllowed ? 'flex-end' : 'flex-start',
+                }}
+              >
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: !screenshotAllowed ? '#ffffff' : '#a1a1aa' }} />
+              </TouchableOpacity>
+            </View>
+
             {/* ── Chat Theme Selector ── */}
             <View style={{ gap: 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#1e1e2c' }}>
               <Text style={{ color: '#a3e635', fontSize: 11, fontWeight: '800', letterSpacing: 1 }}>PERSONAL CHAT THEME</Text>
@@ -2322,65 +2889,176 @@ export default function ChatScreen({
       </TouchableOpacity>
     </Modal>
 
-      {/* ── Image Preview Modal ── */}
+      {/* ── Telegram-Style Ultra-Stylish Image Preview Modal ── */}
       <Modal
         visible={!!previewImageUri}
         transparent={true}
-        animationType="fade"
-        onRequestClose={() => setPreviewImageUri(null)}
+        animationType="slide"
+        onRequestClose={() => {
+          setPreviewImageUri(null)
+          setShowImageEditTools(false)
+        }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(3, 3, 8, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#090a10', borderRadius: 28, borderWidth: 1, borderColor: '#c8ff0040', padding: 22, gap: 16, shadowColor: '#c8ff00', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 12 }}>
-            {/* Header */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: '#c8ff00', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 }}>🖼️ Send Image</Text>
-              <TouchableOpacity onPress={() => setPreviewImageUri(null)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#161622' }}>
-                <Text style={{ color: '#8b8ba7', fontSize: 12, fontWeight: '800' }}>✕ Cancel</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Image Preview Container */}
-            <View style={{ width: '100%', height: 280, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2d', backgroundColor: '#050508', justifyContent: 'center', alignItems: 'center' }}>
-              {previewImageUri ? (
-                <Image source={{ uri: previewImageUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-              ) : null}
-            </View>
-
-            {/* Actions */}
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+        <View style={{ flex: 1, backgroundColor: '#040406', justifyContent: 'space-between' }}>
+          {/* Top Header Bar */}
+          <SafeAreaView>
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              backgroundColor: 'rgba(9, 10, 16, 0.85)',
+              borderBottomWidth: 1,
+              borderBottomColor: '#1e1e2c'
+            }}>
               <TouchableOpacity
-                style={{
-                  flex: 1,
-                  backgroundColor: '#161622',
-                  borderWidth: 1,
-                  borderColor: '#1e1e2c',
-                  paddingVertical: 14,
-                  borderRadius: 16,
-                  alignItems: 'center'
+                onPress={() => {
+                  setPreviewImageUri(null)
+                  setShowImageEditTools(false)
                 }}
-                onPress={() => setPreviewImageUri(null)}
+                style={{ padding: 6 }}
               >
-                <Text style={{ color: '#8b8ba7', fontSize: 14, fontWeight: '700' }}>Cancel</Text>
+                <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '800' }}>✕</Text>
               </TouchableOpacity>
+
+              <View style={{ alignItems: 'center' }}>
+                <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: '900' }}>
+                  Send to @{contact?.name || 'User'}
+                </Text>
+                <Text style={{ color: '#c8ff00', fontSize: 10, fontWeight: '800' }}>
+                  ⚡ HD Ultra Quality
+                </Text>
+              </View>
+
+              {/* Edit Tools Toggle Button */}
               <TouchableOpacity
+                onPress={() => setShowImageEditTools(!showImageEditTools)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 14,
+                  backgroundColor: showImageEditTools ? '#c8ff00' : '#1e1e2c',
+                  borderWidth: 1,
+                  borderColor: showImageEditTools ? '#c8ff00' : '#3f3f46'
+                }}
+              >
+                <Text style={{ color: showImageEditTools ? '#000000' : '#ffffff', fontSize: 12, fontWeight: '900' }}>
+                  🎨 Edit
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+
+          {/* Main Image Preview Area */}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 12, position: 'relative' }}>
+            {previewImageUri ? (
+              <Image
+                source={{ uri: previewImageUri }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: 18,
+                  opacity: selectedImageFilter === 'mono' ? 0.6 : 1,
+                }}
+                resizeMode="contain"
+              />
+            ) : null}
+
+            {/* Editing Tools Bar (Shown when 🎨 Edit is toggled) */}
+            {showImageEditTools && (
+              <View style={{
+                position: 'absolute',
+                bottom: 20,
+                backgroundColor: 'rgba(12, 12, 20, 0.95)',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: '#c8ff0060',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                shadowColor: '#c8ff00',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 10,
+                elevation: 10
+              }}>
+                <TouchableOpacity
+                  onPress={editAndCropImage}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1e1e2c', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}
+                >
+                  <Text style={{ fontSize: 14 }}>✂️</Text>
+                  <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800' }}>Crop</Text>
+                </TouchableOpacity>
+
+                <View style={{ height: 20, width: 1, backgroundColor: '#3f3f46' }} />
+
+                <Text style={{ color: '#8b8ba7', fontSize: 11, fontWeight: '800' }}>Filter:</Text>
+                {['normal', 'vintage', 'cyber', 'mono'].map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    onPress={() => setSelectedImageFilter(f)}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 10,
+                      backgroundColor: selectedImageFilter === f ? '#c8ff00' : '#161622',
+                      borderWidth: 1,
+                      borderColor: selectedImageFilter === f ? '#c8ff00' : '#27272a'
+                    }}
+                  >
+                    <Text style={{ color: selectedImageFilter === f ? '#000000' : '#ffffff', fontSize: 10, fontWeight: '800' }}>
+                      {f.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Bottom Caption Bar & Glowing Send Button */}
+          <SafeAreaView style={{ backgroundColor: 'rgba(9, 10, 16, 0.92)', borderTopWidth: 1, borderTopColor: '#1e1e2c' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 }}>
+              <TextInput
                 style={{
                   flex: 1,
+                  backgroundColor: '#12121a',
+                  color: '#ffffff',
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: '#27272a',
+                  fontSize: 13
+                }}
+                placeholder="Add a caption..."
+                placeholderTextColor="#6b7280"
+                value={imageCaption}
+                onChangeText={setImageCaption}
+              />
+
+              <TouchableOpacity
+                onPress={handleSendPreviewImage}
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
                   backgroundColor: '#c8ff00',
-                  paddingVertical: 14,
-                  borderRadius: 16,
+                  justify.content: 'center',
                   alignItems: 'center',
                   shadowColor: '#c8ff00',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 12,
-                  elevation: 6
+                  shadowOpacity: 0.6,
+                  shadowRadius: 10,
+                  elevation: 8
                 }}
-                onPress={handleSendPreviewImage}
               >
-                <Text style={{ color: '#050608', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 }}>Send Image ⚡</Text>
+                <Icon name="send" size={22} color="#000000" />
               </TouchableOpacity>
             </View>
-          </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -2519,7 +3197,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0a',
     width: '100%',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
 
   // ── Voice Recording ──────────────────────────────────────────

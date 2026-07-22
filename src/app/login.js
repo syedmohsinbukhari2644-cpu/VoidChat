@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, SafeAreaView, StatusBar, Alert, Platform
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { loginUser, registerUser, setToken, sendOtp, verifyOtp } from './api'
 
 // ─── Design Tokens ────────────────────────────────────────────
@@ -20,12 +21,15 @@ const C = {
 }
 
 export default function LoginScreen({ onLogin }) {
+  const insets = useSafeAreaInsets()
+  const topInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
   const [step, setStep] = useState('landing')
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
   const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [otp, setOtp] = useState('')
   const [generatedOtpDisplay, setGeneratedOtpDisplay] = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,29 +52,29 @@ export default function LoginScreen({ onLogin }) {
     setLoading(true)
     try {
       const response = await sendOtp({ email })
-      if (response.data.success) {
-        Alert.alert('📧 OTP Bhej Diya Gaya', response.data.message || '6-digit OTP code aap ke email inbox mein bhej diya gaya hai.')
+      if (response.data?.success) {
+        Alert.alert('📧 OTP Code Sent', response.data.message || '6-digit OTP code has been sent.')
         setStep('verifyOTP')
       }
-      else Alert.alert('Error', response.data.message)
+      else Alert.alert('Error', response.data?.message || 'Failed to send OTP')
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Unable to connect to server!')
+      Alert.alert('OTP Notice', e.message || e.response?.data?.message || 'Unable to send OTP!')
     }
     setLoading(false)
   }
 
   const handleVerifyOTP = async () => {
     if (!otp || otp.length !== 6) {
-      Alert.alert('Error', 'Please enter the 6-digit OTP!')
+      Alert.alert('Error', 'Please enter the 6-digit OTP code!')
       return
     }
     setLoading(true)
     try {
       const response = await verifyOtp({ email, otp })
-      if (response.data.success) { Alert.alert('✅', 'Email verified successfully!'); setStep('register') }
-      else Alert.alert('Error', response.data.message)
+      if (response.data?.success) { Alert.alert('✅ Verified', 'Email verified successfully!'); setStep('register') }
+      else Alert.alert('Error', response.data?.message || 'Invalid OTP!')
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Server error!')
+      Alert.alert('Error', e.message || e.response?.data?.message || 'Server error!')
     }
     setLoading(false)
   }
@@ -114,8 +118,8 @@ export default function LoginScreen({ onLogin }) {
 
   // ── Render ──────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+    <SafeAreaView style={[styles.container, { paddingTop: topInset }]}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} translucent={true} />
 
       {/* Background glow blobs */}
       <View style={styles.glowPurple} pointerEvents="none" />
@@ -275,33 +279,41 @@ export default function LoginScreen({ onLogin }) {
             {/* Form fields */}
             <View style={styles.form}>
               <View style={inp('email')} collapsable={false}>
-                <Text style={styles.inputEmoji}>📧</Text>
+                <Text style={styles.inputEmoji}>📱</Text>
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Email Address"
+                  placeholder="Email or Phone (+92300...)"
                   placeholderTextColor={C.faint}
                   value={email}
                   onChangeText={setEmail}
                   onFocus={() => setFocused('email')}
                   onBlur={() => setFocused(null)}
-                  keyboardType="email-address"
                   autoCapitalize="none"
                 />
               </View>
 
               {isLogin && (
-                <View style={inp('pw')} collapsable={false}>
+                <View style={[inp('pw'), { flexDirection: 'row', alignItems: 'center' }]} collapsable={false}>
                   <Text style={styles.inputEmoji}>🔑</Text>
                   <TextInput
-                    style={styles.inputField}
+                    style={[styles.inputField, { flex: 1 }]}
                     placeholder="Password"
                     placeholderTextColor={C.faint}
                     value={password}
                     onChangeText={setPassword}
                     onFocus={() => setFocused('pw')}
                     onBlur={() => setFocused(null)}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(prev => !prev)}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6 }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 18, opacity: showPassword ? 1 : 0.6 }}>
+                      {showPassword ? '👁️' : '🙈'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -409,18 +421,27 @@ export default function LoginScreen({ onLogin }) {
               />
             </View>
 
-            <View style={inp('rpw')} collapsable={false}>
+            <View style={[inp('rpw'), { flexDirection: 'row', alignItems: 'center' }]} collapsable={false}>
               <Text style={styles.inputEmoji}>🔑</Text>
               <TextInput
-                style={styles.inputField}
+                style={[styles.inputField, { flex: 1 }]}
                 placeholder="Create Password"
                 placeholderTextColor={C.faint}
                 value={password}
                 onChangeText={setPassword}
                 onFocus={() => setFocused('rpw')}
                 onBlur={() => setFocused(null)}
-                secureTextEntry
+                secureTextEntry={!showPassword}
               />
+              <TouchableOpacity
+                onPress={() => setShowPassword(prev => !prev)}
+                style={{ paddingHorizontal: 10, paddingVertical: 6 }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 18, opacity: showPassword ? 1 : 0.6 }}>
+                  {showPassword ? '👁️' : '🙈'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity

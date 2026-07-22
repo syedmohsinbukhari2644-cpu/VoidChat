@@ -1,17 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, StatusBar
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
 
 import { getGroupMessages, sendGroupMessage } from '../api'
 
 export default function GroupChatScreen({ group, onBack }) {
+  const insets = useSafeAreaInsets()
+  const topInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const scrollViewRef = useRef(null)
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false })
+      }, 30)
+    }
+  }, [group?.id, messages.length])
 
   const [showGroupMenu, setShowGroupMenu] = useState(false)
   const [showMediaMenu, setShowMediaMenu] = useState(false)
@@ -72,23 +84,24 @@ export default function GroupChatScreen({ group, onBack }) {
     { name: 'bright', label: 'Bright', emoji: '☀️' },
   ]
 
-  const sendMessage = async () => {
+  const sendMessage = () => {
     if (!input.trim()) return
-    
-    try {
-      if (!group?.id) {
-        Alert.alert('Group missing', 'Group id not found')
-        return
-      }
+    const text = input.trim()
+    if (!group?.id) return
 
-      await sendGroupMessage(group.id, { content: input.trim() })
-      setInput('')
-
-      // refresh messages
-      await fetchMessages()
-    } catch (e) {
-      Alert.alert('Send failed', e?.message || 'Unknown error')
+    setInput('')
+    const optimisticMsg = {
+      id: 'gmsg_ns_' + Date.now(),
+      from: 'You',
+      avatar: '👩',
+      type: 'text',
+      text: text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      streak: false,
     }
+
+    setMessages(prev => [...prev, optimisticMsg])
+    sendGroupMessage(group.id, { content: text }).catch(e => console.log('Group send error:', e))
   }
 
 
@@ -161,7 +174,7 @@ export default function GroupChatScreen({ group, onBack }) {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingTop: topInset }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -307,7 +320,13 @@ export default function GroupChatScreen({ group, onBack }) {
         {/* Messages */}
         <View style={{ flex: 1, position: 'relative', overflow: 'hidden', backgroundColor: '#060608' }}>
           <ChatDoodleBackground opacity={0.08} />
-          <ScrollView style={[styles.messagesContainer, { backgroundColor: 'transparent' }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView 
+            ref={scrollViewRef}
+            style={[styles.messagesContainer, { backgroundColor: 'transparent' }]} 
+            showsVerticalScrollIndicator={false} 
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+          >
             {loadingMessages && (
               <Text style={{ color: '#6b7280', textAlign: 'center', marginVertical: 10 }}>Loading...</Text>
             )}
@@ -446,7 +465,7 @@ export default function GroupChatScreen({ group, onBack }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
   
   header: {
     flexDirection: 'row',

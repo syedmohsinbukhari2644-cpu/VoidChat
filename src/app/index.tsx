@@ -16,9 +16,21 @@ import ReferScreen from './Screens/ReferScreen'
 import Icon from '../components/Icon'
 import * as Contacts from 'expo-contacts'
 import * as ImagePicker from 'expo-image-picker'
-import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost, uploadImageFile } from './api'
+import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost, deletePost, uploadImageFile } from './api'
+import * as Notifications from 'expo-notifications'
+import rawWebrtcService from '../utils/webrtcService'
 import FakeShutdownOverlay from './antitheft/FakeShutdownOverlay'
 import { saveGhostSettings, loadGhostSettings, hashPin } from './antitheft/AntiTheftService'
+
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  })
+} catch (e) {}
 
 const UserAvatar = ({ avatar, size = 40, style, textStyle, fallback = '👤' }) => {
   const isImg = avatar && (
@@ -47,6 +59,7 @@ export default function App() {
   const { width: windowWidth } = useWindowDimensions()
   const isLargeScreen = windowWidth >= 768
   const insets = useSafeAreaInsets()
+  const universalTopInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [loadingAuth, setLoadingAuth] = useState(true)
   const [activeTab, setActiveTab] = useState('feed')
@@ -122,16 +135,82 @@ export default function App() {
 
   // Status/Story states
   const [mockStatuses, setMockStatuses] = useState([
-    { id: '1', name: 'Ali Bhai', avatar: 'A', time: '10 mins ago', content: '🔥 Just earned +500 VOID streak bonus! speak write live!', color: '#10b981' },
-    { id: '2', name: 'Anonymous_42', avatar: '🕵️', time: '2 hours ago', content: '🔓 Encrypted routing updated. Stay safe.', color: '#6366f1' },
-    { id: '3', name: 'Inklab Admin', avatar: 'I', time: '5 hours ago', content: '🎙️ Join our community debate at 8 PM tonight!', color: '#ff4d4d' },
+    { 
+      id: '1', 
+      name: 'My Status (You)', 
+      avatar: '👑', 
+      time: 'Just now', 
+      content: '🔥 Just earned +500 VOID streak bonus on VOID CHAT!', 
+      color: '#c8ff00',
+      isMe: true,
+      viewers: [
+        { id: 'v1', name: 'Ali Raza', username: 'ali_raza', avatar: 'A', time: 'Today at 04:15 PM' },
+        { id: 'v2', name: 'Zainab Bibi', username: 'zainab_b', avatar: 'Z', time: 'Today at 04:22 PM' },
+        { id: 'v3', name: 'Hamza Khan', username: 'hamza_k', avatar: 'H', time: 'Today at 04:30 PM' },
+        { id: 'v4', name: 'Usman Ghani', username: 'usman_g', avatar: 'U', time: 'Today at 04:45 PM' }
+      ]
+    },
+    { 
+      id: '2', 
+      name: 'Ali Bhai', 
+      avatar: 'A', 
+      time: '10 mins ago', 
+      content: '⚡ Private end-to-end status update!', 
+      color: '#10b981',
+      viewers: [
+        { id: 'v1', name: 'You', username: 'you', avatar: '👑', time: 'Just now' }
+      ]
+    },
+    { 
+      id: '3', 
+      name: 'Inklab Admin', 
+      avatar: 'I', 
+      time: '5 hours ago', 
+      content: '🎙️ Join our community debate at 8 PM tonight!', 
+      color: '#ff4d4d',
+      viewers: [
+        { id: 'v1', name: 'You', username: 'you', avatar: '👑', time: '1 hr ago' },
+        { id: 'v2', name: 'Sara Ahmed', username: 'sara_a', avatar: 'S', time: '2 hrs ago' }
+      ]
+    },
   ])
+
+  const [showStatusViewersModal, setShowStatusViewersModal] = useState(false)
+  const [selectedStatusForViewers, setSelectedStatusForViewers] = useState(null)
   const [newStatusText, setNewStatusText] = useState('')
   const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
   const [statusType, setStatusType] = useState('text') // 'text' | 'media' | 'link' | 'audio'
   const [statusMediaUri, setStatusMediaUri] = useState(null)
   const [statusLinkUrl, setStatusLinkUrl] = useState('')
   const [statusBgColor, setStatusBgColor] = useState('#6366f1') // Default Indigo
+
+  // WhatsApp Style Status Media Preview States
+  const [showStatusMediaPreview, setShowStatusMediaPreview] = useState(false)
+  const [statusMediaType, setStatusMediaType] = useState('image') // 'image' | 'video'
+  const [statusTrimStart, setStatusTrimStart] = useState(0)
+  const [statusTrimEnd, setStatusTrimEnd] = useState(30)
+  const [statusCaptionText, setStatusCaptionText] = useState('')
+  const swipeScrollViewRef = useRef(null)
+  const { width: windowWidth } = useWindowDimensions()
+  const [userBubbleTheme, setUserBubbleTheme] = useState('cyber_pink')
+
+  useEffect(() => {
+    const loadBubbleTheme = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('user_bubble_theme')
+        if (saved) setUserBubbleTheme(saved)
+      } catch (e) {}
+    }
+    loadBubbleTheme()
+  }, [])
+
+  const handleSelectBubbleTheme = async (themeKey) => {
+    setUserBubbleTheme(themeKey)
+    try {
+      await AsyncStorage.setItem('user_bubble_theme', themeKey)
+    } catch (e) {}
+    Alert.alert('🎨 Bubble Color Updated', 'Chat message bubble color updated!')
+  }
   const [starredMessages, setStarredMessages] = useState([])
   const [postContent, setPostContent] = useState('')
   const [postType, setPostType] = useState('text')
@@ -593,6 +672,22 @@ export default function App() {
   const [streakImage, setStreakImage] = useState('')
   const [sendingStreak, setSendingStreak] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [exploreSearchQuery, setExploreSearchQuery] = useState('')
+  const [selectedExploreCategory, setSelectedExploreCategory] = useState('all')
+  const [pinnedPostIds, setPinnedPostIds] = useState([])
+  const [disabledCommentsPostIds, setDisabledCommentsPostIds] = useState([])
+  const [selectedPostForMenu, setSelectedPostForMenu] = useState(null)
+  const [showPostMenuModal, setShowPostMenuModal] = useState(false)
+  const [showDpEditorModal, setShowDpEditorModal] = useState(false)
+  const [dpRawImageUri, setDpRawImageUri] = useState('')
+  const [dpSelectedFilter, setDpSelectedFilter] = useState('normal')
+  const [dpRotation, setDpRotation] = useState(0)
+  const [unreadMap, setUnreadMap] = useState({})
+
+  const markChatAsRead = (chatId) => {
+    setUnreadMap(prev => ({ ...prev, [chatId]: 0 }))
+    setChatModeChats(prev => prev.map(c => c.id === chatId ? { ...c, unread: 0 } : c))
+  }
 
   // ── Dynamic Theme & Styling Objects ──
   const theme = {
@@ -615,6 +710,18 @@ export default function App() {
     }
   }
 
+  const [inAppBanner, setInAppBanner] = useState(null)
+
+  const showChatRef = useRef(showChat)
+  const selectedChatContactRef = useRef(selectedChatContact)
+  const usersRef = useRef(users)
+
+  useEffect(() => {
+    showChatRef.current = showChat
+    selectedChatContactRef.current = selectedChatContact
+    usersRef.current = users
+  }, [showChat, selectedChatContact, users])
+
   useEffect(() => {
     if (isLoggedIn) {
       loadFeed()
@@ -625,6 +732,101 @@ export default function App() {
       loadUsers()
     }
   }, [isLoggedIn])
+
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser) return
+
+    const myUserId = currentUser._id || currentUser.id
+    if (myUserId) {
+      rawWebrtcService.connect(myUserId, currentUser.username || '')
+    }
+
+    const socket = rawWebrtcService.socket
+    const handleGlobalMessage = (data) => {
+      if (!data) return
+      const senderId = data.sender
+      const activeContactId = selectedChatContactRef.current?._id || selectedChatContactRef.current?.id || selectedChatContactRef.current?.userId
+
+      if (showChatRef.current && String(activeContactId) === String(senderId)) {
+        return
+      }
+
+      setUnreadMap(prev => ({ ...prev, [senderId]: (prev[senderId] || 0) + 1 }))
+      setChatModeChats(prev => prev.map(c => String(c.id) === String(senderId) ? { ...c, unread: (c.unread || 0) + 1 } : c))
+
+      const senderUser = usersRef.current.find(u => String(u._id || u.id) === String(senderId))
+      const senderName = senderUser ? (senderUser.name || senderUser.username) : 'User'
+
+      try {
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: `💬 ${senderName}`,
+            body: data.content || 'Sent a new message',
+            data: { senderId },
+          },
+          trigger: null,
+        })
+      } catch (e) {}
+
+      setInAppBanner({
+        id: Date.now(),
+        title: senderName,
+        message: data.content || 'Sent a new message',
+        senderId: senderId,
+        contact: senderUser || { _id: senderId, id: senderId, name: senderName }
+      })
+
+      const updateChatList = (prevList) => {
+        const exists = prevList.some(chat => String(chat.id) === String(senderId))
+        if (exists) {
+          return prevList.map(chat => {
+            if (String(chat.id) === String(senderId)) {
+              return { 
+                ...chat, 
+                unread: (chat.unread || 0) + 1,
+                lastMessage: data.content || 'Sent a new message'
+              }
+            }
+            return chat
+          })
+        } else {
+          const newChatObj = {
+            id: senderId,
+            name: senderName,
+            username: senderUser?.username || senderName,
+            phoneNumber: senderUser?.phone || senderUser?.email || senderName,
+            color: '#c8ff00',
+            avatar: senderUser?.avatar || (senderName[0] || 'U').toUpperCase(),
+            streak: 0,
+            unread: 1,
+            lastMessage: data.content || 'Sent a new message',
+            isNewContact: true
+          }
+          return [newChatObj, ...prevList]
+        }
+      }
+
+      setChatModeChats(prev => updateChatList(prev))
+      setSocialModeChats(prev => updateChatList(prev))
+    }
+
+    if (socket) {
+      socket.on('receive-message', handleGlobalMessage)
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('receive-message', handleGlobalMessage)
+      }
+    }
+  }, [isLoggedIn, currentUser?._id, currentUser?.id])
+
+  useEffect(() => {
+    if (inAppBanner) {
+      const timer = setTimeout(() => setInAppBanner(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [inAppBanner])
 
   // Load custom persisted fields (firstName, lastName, birthday) from AsyncStorage on mount
   useEffect(() => {
@@ -864,13 +1066,16 @@ export default function App() {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.9,
         base64: true,
       })
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const base64Uri = `data:image/jpeg;base64,${result.assets[0].base64}`
-        setTempAvatar(base64Uri)
+        setDpRawImageUri(base64Uri)
+        setDpSelectedFilter('normal')
+        setDpRotation(0)
+        setShowDpEditorModal(true)
       }
     } catch (e) {
       Alert.alert('Error', 'Failed to pick image from gallery.')
@@ -1080,47 +1285,77 @@ export default function App() {
 
     setChatModeChats(mappedChats)
 
+    // 2. Social Mode Group & Community Chats ONLY (Strictly Separate from Personal Chat Section!)
     const groupChats = [
-      { id: 'group_inklab', name: 'Inklab Group (Global)', color: '#ff4d4d', unread: 0, streak: 0, isGroup: true }
+      { id: 'group_inklab', name: 'Inklab Group (Global)', color: '#ff4d4d', unread: 0, streak: 0, isGroup: true, avatar: '👥' }
     ]
-    setSocialModeChats([...groupChats, ...mappedChats])
+    setSocialModeChats(groupChats)
   }, [users, currentUser])
 
   // Android hardware back button handler
   useEffect(() => {
     const backAction = () => {
+      // 1. Close Status Media Preview
+      if (showStatusMediaPreview) {
+        setShowStatusMediaPreview(false)
+        return true
+      }
+      // 2. Close Status Viewers Modal
+      if (showStatusViewersModal) {
+        setShowStatusViewersModal(false)
+        return true
+      }
+      // 3. Close Status Privacy Modal
+      if (showStatusPrivacyModal) {
+        setShowStatusPrivacyModal(false)
+        return true
+      }
+      // 4. Close Chat Options Menu
+      if (showChatOptionsMenu) {
+        setShowChatOptionsMenu(false)
+        return true
+      }
+      // 5. Close Streak Modal
       if (showStreak) {
         setShowStreak(false)
         return true
       }
+      // 6. Close Create Post Modal
       if (showCreate) {
         setShowCreate(false)
         return true
       }
+      // 7. Close User Profile Detail Modal
       if (selectedUserProfile) {
         setSelectedUserProfile(null)
         return true
       }
+      // 8. Close active Chat conversation screen -> returns to Chat Inbox
       if (showChat) {
         setShowChat(false)
         return true
       }
+      // 9. Close Notifications Modal
       if (showNotifs) {
         setShowNotifs(false)
         return true
       }
+      // 10. Close Wallet Modal
       if (showWallet) {
         setShowWallet(false)
         return true
       }
+      // 11. Close Account Modal
       if (showAccountModal) {
         setShowAccountModal(false)
         return true
       }
+      // 12. Close Data Storage Modal
       if (showDataStorage) {
         setShowDataStorage(false)
         return true
       }
+      // 13. Close Chat Vault Modals
       if (showChatFolder) {
         setShowChatFolder(false)
         return true
@@ -1135,6 +1370,7 @@ export default function App() {
         setShowSecretFolderChats(false)
         return true
       }
+      // 14. Close Settings Modals
       if (showDevicesModal) {
         setShowDevicesModal(false)
         return true
@@ -1155,12 +1391,38 @@ export default function App() {
         setShowCreateGroupModal(false)
         return true
       }
-      return false // allow default back (exit app)
+      if (showPrivacySettings) {
+        setShowPrivacySettings(false)
+        return true
+      }
+      if (showChatSettings) {
+        setShowChatSettings(false)
+        return true
+      }
+      if (showNotifSettings) {
+        setShowNotifSettings(false)
+        return true
+      }
+
+      // 15. If in Social Feed / Reels / Settings tab (not main chat mode), return to Main Chat Section
+      if (appMode !== 'chat') {
+        setAppMode('chat')
+        return true
+      }
+
+      // 16. If user is on Main Chat Section with no open modals -> EXIT APP
+      return false
     }
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction)
     return () => backHandler.remove()
-  }, [showStreak, showCreate, selectedUserProfile, showChat, showNotifs, showWallet, showAccountModal, showDataStorage, showChatFolder, showFolderAuthModal, showSecretFolderChats, showDevicesModal, showPowerSavingModal, showLanguageModal, showPremiumModal, showCreateGroupModal])
+  }, [
+    showStatusMediaPreview, showStatusViewersModal, showStatusPrivacyModal, showChatOptionsMenu,
+    showStreak, showCreate, selectedUserProfile, showChat, showNotifs, showWallet,
+    showAccountModal, showDataStorage, showChatFolder, showFolderAuthModal, showSecretFolderChats,
+    showDevicesModal, showPowerSavingModal, showLanguageModal, showPremiumModal, showCreateGroupModal,
+    showPrivacySettings, showChatSettings, showNotifSettings, appMode
+  ])
 
   // Web browser back button integration (popstate and pushState)
   const modalOpenRef = useRef(false)
@@ -1266,6 +1528,57 @@ export default function App() {
     } catch (e) {}
   }
 
+  const pickStatusMedia = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Denied', 'Permission to access gallery is required for status updates.')
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: false,
+        quality: 0.9,
+      })
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0]
+        setStatusMediaUri(asset.uri)
+        setStatusMediaType(asset.type === 'video' ? 'video' : 'image')
+        setStatusTrimStart(0)
+        setStatusTrimEnd(Math.min(120, Math.round(asset.duration ? asset.duration / 1000 : 120)))
+        setStatusCaptionText('')
+        setShowStatusMediaPreview(true)
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to select media for status update.')
+    }
+  }
+
+  const handlePostStatusMedia = () => {
+    if (!statusMediaUri) return
+    const trimInfo = statusMediaType === 'video' ? ` (Trimmed: ${Math.floor(statusTrimStart / 60)}:${statusTrimStart % 60 < 10 ? '0' : ''}${statusTrimStart % 60} - ${Math.floor(statusTrimEnd / 60)}:${statusTrimEnd % 60 < 10 ? '0' : ''}${statusTrimEnd % 60})` : ''
+    const mediaTag = statusMediaType === 'video' ? `[VIDEO] ${statusMediaUri}` : `[MEDIA] ${statusMediaUri}`
+    const finalContent = statusCaptionText.trim()
+      ? `${statusCaptionText.trim()}${trimInfo}\n${mediaTag}`
+      : `${mediaTag}${trimInfo}`
+
+    const newStatusObj = {
+      id: String(Date.now()),
+      name: 'My Status (You)',
+      avatar: currentUser?.avatar || '👑',
+      time: 'Just now',
+      content: finalContent,
+      color: '#c8ff00',
+      isMe: true,
+      viewers: []
+    }
+    setMockStatuses(prev => [newStatusObj, ...prev])
+    setShowStatusMediaPreview(false)
+    setStatusMediaUri(null)
+    setStatusCaptionText('')
+    Alert.alert('🎉 Status Published!', 'Your WhatsApp-style status update is live for your contacts!')
+  }
+
   const loadBalance = async () => {
     try {
       const res = await getBalance()
@@ -1277,8 +1590,10 @@ export default function App() {
   const claimDailyBonus = async () => {
     try {
       const res = await dailyLogin()
-      Alert.alert('🎉 Daily Bonus!', res.data.message)
-      loadBalance()
+      if (res?.data?.success) {
+        Alert.alert('🎉 Daily Bonus!', res.data.message)
+        loadBalance()
+      }
     } catch (e) {}
   }
 
@@ -1606,6 +1921,61 @@ export default function App() {
     }
   }
 
+  const isPostOwner = (post) => {
+    if (!currentUser || !post) return false
+    const myId = String(currentUser._id || currentUser.id)
+    const authorId = String(post.user?._id || post.user?.id || post.user)
+    return myId === authorId
+  }
+
+  const handleDeletePost = (post) => {
+    const targetId = post._id || post.id
+    if (!targetId) return
+
+    Alert.alert(
+      '🗑️ Delete Post',
+      'Are you sure you want to delete this post permanently?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await deletePost(targetId)
+              setPosts(prev => prev.filter(p => (p._id || p.id) !== targetId))
+              Alert.alert('Deleted', res.data.message || 'Post deleted successfully.')
+            } catch (e) {
+              Alert.alert('Error', 'Failed to delete post.')
+            }
+          }
+        }
+      ]
+    )
+  }
+
+  const handleTogglePinPost = async (post) => {
+    const pId = post._id || post.id
+    if (!pId) return
+    const isPinned = pinnedPostIds.includes(pId)
+    const updated = isPinned ? pinnedPostIds.filter(id => id !== pId) : [pId, ...pinnedPostIds]
+    setPinnedPostIds(updated)
+    await AsyncStorage.setItem('@void_pinned_posts', JSON.stringify(updated))
+    setShowPostMenuModal(false)
+    Alert.alert(isPinned ? 'Unpinned' : '📌 Pinned to Profile', isPinned ? 'Post unpinned from your profile.' : 'Post pinned to top of profile!')
+  }
+
+  const handleToggleDisableComments = async (post) => {
+    const pId = post._id || post.id
+    if (!pId) return
+    const isDisabled = disabledCommentsPostIds.includes(pId)
+    const updated = isDisabled ? disabledCommentsPostIds.filter(id => id !== pId) : [pId, ...disabledCommentsPostIds]
+    setDisabledCommentsPostIds(updated)
+    await AsyncStorage.setItem('@void_disabled_comments_posts', JSON.stringify(updated))
+    setShowPostMenuModal(false)
+    Alert.alert(isDisabled ? '💬 Comments Enabled' : '🔇 Comments Turned Off', isDisabled ? 'Comments are now enabled for this post.' : 'Comments have been turned off for this post.')
+  }
+
   const handleSavePost = async (postId) => {
     try {
       const res = await savePost(postId)
@@ -1752,9 +2122,14 @@ export default function App() {
             <Text style={styles.VOIDText}>{VOIDBalance}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setShowNotifs(true)} style={styles.notifIconBtn}>
-          <Icon name="notifications" size={22} color="#9ca3af" />
+        <TouchableOpacity onPress={() => setActiveTab('inbox')} style={styles.notifIconBtn}>
+          <Icon name="chat" size={20} color={activeTab === 'inbox' ? theme.primary : '#9ca3af'} forceEmoji={true} />
         </TouchableOpacity>
+        {appMode === 'social' && (
+          <TouchableOpacity onPress={() => setShowNotifs(true)} style={styles.notifIconBtn}>
+            <Icon name="notifications" size={22} color="#9ca3af" />
+          </TouchableOpacity>
+        )}
         {showMoreOptions && (
           <TouchableOpacity
             onPress={() => {
@@ -1892,13 +2267,32 @@ export default function App() {
                     {(isPostAuthorPremium(post) && !post.isAnonymous) && (
                       <Text style={{ fontSize: 11 }}>👑</Text>
                     )}
+                    {pinnedPostIds.includes(post._id || post.id) && (
+                      <View style={{ backgroundColor: '#c8ff0020', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, borderWidth: 0.5, borderColor: '#c8ff0060' }}>
+                        <Text style={{ color: '#c8ff00', fontSize: 10, fontWeight: '800' }}>📌 Pinned</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={[styles.postTime, { color: theme.subText }]}>🔐 Encrypted</Text>
                 </TouchableOpacity>
-                <View style={styles.VOIDEarned}>
-                  <Text style={styles.VOIDEarnedText}>
-                    +{post.VOIDEarned} VOID
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.VOIDEarned}>
+                    <Text style={styles.VOIDEarnedText}>
+                      +{post.VOIDEarned} VOID
+                    </Text>
+                  </View>
+
+                  {/* 3-Dots Post Action Menu Button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSelectedPostForMenu(post)
+                      setShowPostMenuModal(true)
+                    }}
+                    style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 18, fontWeight: '900' }}>⋮</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
               {post.content ? (
@@ -2028,10 +2422,174 @@ export default function App() {
             <Text style={styles.fabPlus}>+</Text>
           </View>
         </View>
-        <Text style={styles.fabLabel}>Post</Text>
       </TouchableOpacity>
     </View>
   )
+
+  const renderExploreContent = () => {
+    const categories = [
+      { id: 'all', label: '🔥 Trending' },
+      { id: 'aesthetic', label: '📸 Aesthetic' },
+      { id: 'reels', label: '📹 Short Reels' },
+      { id: 'cyber', label: '🎨 Cyber Art' },
+      { id: 'creators', label: '👑 Top Creators' },
+    ]
+
+    const exploreItems = [
+      { id: 'ex1', type: 'image', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&q=80', title: 'Neon Cyber Grid', likes: '1.2k', isLarge: true },
+      { id: 'ex2', type: 'reel', url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80', title: 'Night Vibe', duration: '0:15', likes: '850' },
+      { id: 'ex3', type: 'image', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80', title: 'Golden Hour', likes: '2.4k' },
+      { id: 'ex4', type: 'image', url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80', title: 'Aesthetic Sky', likes: '940' },
+      { id: 'ex5', type: 'reel', url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&q=80', title: 'Cyber Gaming', duration: '0:30', likes: '3.1k', isLarge: true },
+      { id: 'ex6', type: 'image', url: 'https://images.unsplash.com/photo-1511447333015-45b65e60f6d5?w=600&q=80', title: 'Neon Purple', likes: '1.8k' },
+      { id: 'ex7', type: 'image', url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=600&q=80', title: 'Abstract Flow', likes: '620' },
+      { id: 'ex8', type: 'reel', url: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&q=80', title: 'Retro Synthwave', duration: '0:20', likes: '4.5k' },
+      { id: 'ex9', type: 'image', url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80', title: 'Chill Aesthetic', likes: '1.1k' },
+      { id: 'ex10', type: 'image', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&q=80', title: 'Futuristic City', likes: '2.9k' },
+    ]
+
+    const filteredItems = exploreItems.filter(item => {
+      if (exploreSearchQuery) {
+        return item.title.toLowerCase().includes(exploreSearchQuery.toLowerCase())
+      }
+      if (selectedExploreCategory === 'reels') return item.type === 'reel'
+      if (selectedExploreCategory === 'cyber') return item.title.toLowerCase().includes('cyber') || item.title.toLowerCase().includes('neon')
+      if (selectedExploreCategory === 'aesthetic') return item.title.toLowerCase().includes('aesthetic') || item.title.toLowerCase().includes('sky') || item.title.toLowerCase().includes('hour')
+      return true
+    })
+
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        {/* Instagram-Style Search Header */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, backgroundColor: theme.bg }}>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: theme.cardBg,
+            borderRadius: 16,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderWidth: 1,
+            borderColor: theme.border,
+            gap: 10
+          }}>
+            <Icon name="search" size={20} color={theme.primary} />
+            <TextInput
+              style={{ flex: 1, color: theme.text, fontSize: 14, padding: 0 }}
+              placeholder="Search aesthetic photos, reels, creators..."
+              placeholderTextColor="#4b5563"
+              value={exploreSearchQuery}
+              onChangeText={setExploreSearchQuery}
+            />
+            {exploreSearchQuery ? (
+              <TouchableOpacity onPress={() => setExploreSearchQuery('')}>
+                <Text style={{ color: '#6b7280', fontSize: 14 }}>✕</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Category Pills */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
+            {categories.map(cat => (
+              <TouchableOpacity
+                key={cat.id}
+                onPress={() => setSelectedExploreCategory(cat.id)}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 6,
+                  borderRadius: 20,
+                  backgroundColor: selectedExploreCategory === cat.id ? theme.primary : theme.cardBg,
+                  borderWidth: 1,
+                  borderColor: selectedExploreCategory === cat.id ? theme.primary : theme.border,
+                }}
+              >
+                <Text style={{
+                  color: selectedExploreCategory === cat.id ? '#060608' : theme.text,
+                  fontSize: 12,
+                  fontWeight: '700'
+                }}>
+                  {cat.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Instagram-Style Staggered 3-Column Masonry Grid */}
+        <ScrollView style={{ flex: 1, paddingHorizontal: 2 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            {filteredItems.map((item) => {
+              const isLargeTile = item.isLarge
+              const tileWidth = isLargeTile ? '66.66%' : '33.33%'
+              const tileHeight = isLargeTile ? 240 : 120
+
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={{
+                    width: tileWidth,
+                    height: tileHeight,
+                    padding: 2,
+                  }}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    if (item.type === 'reel') {
+                      setActiveTab('reels')
+                    } else {
+                      Alert.alert(item.title, `❤️ ${item.likes} likes • Aesthetic Post`)
+                    }
+                  }}
+                >
+                  <View style={{ flex: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: '#12121a', position: 'relative' }}>
+                    <Image source={{ uri: item.url }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    
+                    {/* Dark gradient overlay at bottom */}
+                    <View style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      padding: 6,
+                      backgroundColor: 'rgba(0,0,0,0.45)',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={{ color: '#c8ff00', fontSize: 10, fontWeight: '800' }}>
+                        ❤️ {item.likes}
+                      </Text>
+                    </View>
+
+                    {/* Reel Video Play Badge */}
+                    {item.type === 'reel' && (
+                      <View style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        backgroundColor: 'rgba(0,0,0,0.65)',
+                        paddingHorizontal: 6,
+                        paddingVertical: 3,
+                        borderRadius: 10,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4
+                      }}>
+                        <Text style={{ fontSize: 10 }}>▶️</Text>
+                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{item.duration}</Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        </ScrollView>
+      </View>
+    )
+  }
 
   const renderInboxContent = () => (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -2041,15 +2599,32 @@ export default function App() {
           <View style={{ flexDirection: 'row', backgroundColor: theme.cardBg, borderBottomWidth: 1, borderBottomColor: theme.border, alignItems: 'center' }}>
             <TouchableOpacity
               style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'chats' ? 2 : 0, borderBottomColor: theme.primary }}
-              onPress={() => setChatInboxTab('chats')}
+              onPress={() => {
+                setChatInboxTab('chats')
+                swipeScrollViewRef.current?.scrollTo({ x: 0, animated: true })
+              }}
             >
-              <Text style={{ color: chatInboxTab === 'chats' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 14 }}>CHATS</Text>
+              <Text style={{ color: chatInboxTab === 'chats' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>CHATS</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'contacts' ? 2 : 0, borderBottomColor: theme.primary }}
+              onPress={() => {
+                setChatInboxTab('contacts')
+                swipeScrollViewRef.current?.scrollTo({ x: windowWidth, animated: true })
+              }}
+            >
+              <Text style={{ color: chatInboxTab === 'contacts' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>👥 CONTACTS</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: chatInboxTab === 'status' ? 2 : 0, borderBottomColor: theme.primary }}
-              onPress={() => setChatInboxTab('status')}
+              onPress={() => {
+                setChatInboxTab('status')
+                swipeScrollViewRef.current?.scrollTo({ x: windowWidth * 2, animated: true })
+              }}
             >
-              <Text style={{ color: chatInboxTab === 'status' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 14 }}>STATUS</Text>
+              <Text style={{ color: chatInboxTab === 'status' ? theme.primary : theme.subText, fontWeight: '800', fontSize: 13 }}>STATUS</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={{
@@ -2090,343 +2665,321 @@ export default function App() {
             />
           </View>
 
-          {chatInboxTab === 'chats' ? (
+          {/* ── WhatsApp Style Swipeable Horizontal Container ── */}
+          <ScrollView
+            ref={swipeScrollViewRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ flex: 1 }}
+            onMomentumScrollEnd={(e) => {
+              const offsetX = e.nativeEvent.contentOffset.x
+              const page = Math.round(offsetX / windowWidth)
+              if (page === 2) {
+                setChatInboxTab('status')
+              } else if (page === 1) {
+                setChatInboxTab('contacts')
+              } else {
+                setChatInboxTab('chats')
+              }
+            }}
+          >
+            {/* 📱 Screen 1: CHATS Tab Content */}
+            <View style={{ width: windowWidth, flex: 1 }}>
+              <ScrollView style={styles.content}>
+                {/* Secret Vault Shortcut Row */}
+                {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 16,
+                      backgroundColor: theme.cardBg,
+                      borderBottomWidth: 1,
+                      borderBottomColor: theme.border,
+                      gap: 14,
+                      marginHorizontal: 12,
+                      marginVertical: 12,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                    }}
+                    onPress={() => {
+                      setFolderAuthAction('open_folder')
+                      if (!secretFolderPin) {
+                        setPinSetupStep(1)
+                        setTempPinSetup('')
+                        setAuthError('')
+                        setShowFolderAuthModal(true)
+                      } else {
+                        setFolderAuthPinInput('')
+                        setAuthError('')
+                        setShowFolderAuthModal(true)
+                      }
+                    }}
+                  >
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDayMode ? '#c8ff0020' : '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
+                      <Icon name="lock" size={18} color={theme.primary} forceEmoji={true} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
+                      <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>Secure folder for personal chats</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
+                      <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* Global Registered Users Search Results */}
+                {inboxSearchQuery.trim() !== '' && (
+                  <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
+                    {(() => {
+                      const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
+                      const filtered = users.filter(u => {
+                        const uname = (u.username || '').toLowerCase()
+                        const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                        return !isSelf && uname === q
+                      })
+                      if (filtered.length === 0) {
+                        return (
+                          <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border }}>
+                            <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
+                              🔍 No registered user found matching "{inboxSearchQuery}"
+                            </Text>
+                          </View>
+                        )
+                      }
+                      return filtered.map(u => (
+                        <TouchableOpacity
+                          key={u._id || u.id}
+                          style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
+                          onPress={async () => {
+                            await handleSelectUserToChat(u)
+                            const newChatObj = {
+                              id: u._id || u.id,
+                              name: u.name || u.username,
+                              username: u.username,
+                              phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                              color: '#c8ff00',
+                              avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
+                              streak: 0,
+                              unread: 0
+                            }
+                            setShowChat(newChatObj)
+                            setInboxSearchQuery('')
+                          }}
+                        >
+                          <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
+                            <UserAvatar 
+                              avatar={u.avatar} 
+                              size={44} 
+                              textStyle={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]} 
+                              fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
+                            />
+                          </View>
+                          <View style={styles.chatInfo}>
+                            <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
+                            <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to start encrypted chat</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                    })()}
+                  </View>
+                )}
+
+                {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => {
+                  const unreadCount = unreadMap[chat.id] || chat.unread || 0
+
+                  return (
+                    <TouchableOpacity
+                      key={chat.id}
+                      style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border, paddingVertical: 12 }]}
+                      onPress={() => {
+                        markChatAsRead(chat.id)
+                        setShowChat(chat)
+                      }}
+                      onLongPress={() => {
+                        Alert.alert(
+                          '🛡️ Chat Options',
+                          `Choose an option for ${chat.name}:`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: '🔒 Move to Secret Vault', onPress: () => moveToSecretFolder(chat.id) },
+                            { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
+                          ]
+                        )
+                      }}
+                    >
+                      <View style={{ position: 'relative' }}>
+                        <View style={[styles.chatAvatar, { backgroundColor: chat.color, overflow: 'hidden' }]}>
+                          <UserAvatar 
+                            avatar={chat.avatar} 
+                            size={40} 
+                            textStyle={[styles.avatarText, { color: '#ffffff' }]} 
+                            fallback={chat.name[0]} 
+                          />
+                        </View>
+
+                        {/* 🔴 Unread Dot Badge on Avatar */}
+                        {unreadCount > 0 && (
+                          <View style={{
+                            position: 'absolute',
+                            top: -2,
+                            right: -2,
+                            width: 14,
+                            height: 14,
+                            borderRadius: 7,
+                            backgroundColor: '#ef4444',
+                            borderWidth: 2,
+                            borderColor: theme.cardBg
+                          }} />
+                        )}
+                      </View>
+
+                      <View style={styles.chatInfo}>
+                        <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>
+                          {chat.name}
+                        </Text>
+                        <Text style={{ color: theme.subText, fontSize: 12 }} numberOfLines={1}>
+                          {chat.lastMessage || 'End-to-end encrypted'}
+                        </Text>
+                      </View>
+
+                      {/* 🟢 Glowing Unread Counting Badge */}
+                      {unreadCount > 0 && (
+                        <View style={{
+                          backgroundColor: '#c8ff00',
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 12,
+                          minWidth: 22,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          shadowColor: '#c8ff00',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.5,
+                          shadowRadius: 4,
+                          elevation: 4
+                        }}>
+                          <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>
+                            {unreadCount}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* 📱 Screen 2: 👥 CONTACTS Tab Content */}
+          <View style={{ width: windowWidth, flex: 1 }}>
             <ScrollView style={styles.content}>
-              {/* Secret Vault Shortcut Row */}
-              {((secretFolderPin && inboxSearchQuery === secretFolderPin) || (!secretFolderPin && inboxSearchQuery.toLowerCase() === 'vault')) && (
+              <View style={{ padding: 12, gap: 10 }}>
+                {/* Top Sync Phone Contacts Banner */}
                 <TouchableOpacity
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    padding: 16,
                     backgroundColor: theme.cardBg,
-                    borderBottomWidth: 1,
-                    borderBottomColor: theme.border,
-                    gap: 14,
-                    marginHorizontal: 12,
-                    marginVertical: 12,
                     borderRadius: 16,
+                    padding: 14,
                     borderWidth: 1,
-                    borderColor: theme.border,
+                    borderColor: theme.primary,
+                    gap: 12
                   }}
-                  onPress={() => {
-                    setFolderAuthAction('open_folder')
-                    if (!secretFolderPin) {
-                      setPinSetupStep(1)
-                      setTempPinSetup('')
-                      setAuthError('')
-                      setShowFolderAuthModal(true)
-                    } else {
-                      setFolderAuthPinInput('')
-                      setAuthError('')
-                      setShowFolderAuthModal(true)
-                    }
-                  }}
+                  onPress={syncDeviceContacts}
                 >
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDayMode ? '#c8ff0020' : '#c8ff0010', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#c8ff0025' }}>
-                    <Icon name="lock" size={18} color={theme.primary} forceEmoji={true} />
-                  </View>
+                  <Text style={{ fontSize: 24 }}>📱</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontWeight: '800', fontSize: 14 }}>Secret Vault</Text>
-                    <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>Secure folder for personal chats</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Locked 🔒</Text>
-                    <Text style={{ color: '#3a3a5a', fontSize: 14 }}>›</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              {/* Global Registered Users Search Results */}
-              {inboxSearchQuery.trim() !== '' && (
-                <View style={{ paddingHorizontal: 12, paddingVertical: 6 }}>
-                  {(() => {
-                    const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
-                    const filtered = users.filter(u => {
-                      const uname = (u.username || '').toLowerCase()
-                      const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                      return !isSelf && uname === q
-                    })
-                    if (filtered.length === 0) {
-                      return (
-                        <View style={{ padding: 12, backgroundColor: theme.cardBg, borderRadius: 12, borderWidth: 1, borderColor: theme.border }}>
-                          <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center' }}>
-                            🔍 No registered user found matching "{inboxSearchQuery}"
-                          </Text>
-                        </View>
-                      )
-                    }
-                    return filtered.map(u => (
-                      <TouchableOpacity
-                        key={u._id || u.id}
-                        style={[styles.chatItem, { backgroundColor: theme.cardBg, borderColor: theme.primary, borderWidth: 1, borderRadius: 16, marginBottom: 8 }]}
-                        onPress={async () => {
-                          await handleSelectUserToChat(u)
-                          const newChatObj = {
-                            id: u._id || u.id,
-                            name: u.name || u.username,
-                            username: u.username,
-                            phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
-                            color: '#c8ff00',
-                            avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
-                            streak: 0,
-                            unread: 0
-                          }
-                          setShowChat(newChatObj)
-                          setInboxSearchQuery('')
-                        }}
-                      >
-                        <View style={[styles.chatAvatar, { backgroundColor: theme.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
-                          <UserAvatar 
-                            avatar={u.avatar} 
-                            size={44} 
-                            textStyle={[styles.avatarText, { color: '#000', fontSize: 16, fontWeight: '900' }]} 
-                            fallback={(u.username || u.name || 'U')[0].toUpperCase()} 
-                          />
-                        </View>
-                        <View style={styles.chatInfo}>
-                          <Text style={[styles.chatName, { color: theme.text, fontSize: 14, fontWeight: '800' }]}>@{u.username || u.name}</Text>
-                          <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>⚡ Tap to start encrypted chat</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))
-                  })()}
-                </View>
-              )}
-
-              {visibleChatModeChats.filter(chat => chat.name.toLowerCase().includes(inboxSearchQuery.toLowerCase())).map(chat => (
-                <TouchableOpacity
-                  key={chat.id}
-                  style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
-                  onPress={() => setShowChat(chat)}
-                  onLongPress={() => {
-                    Alert.alert(
-                      '🛡️ Chat Options',
-                      `Choose an option for ${chat.name}:`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: '🔒 Move to Secret Vault', onPress: () => moveToSecretFolder(chat.id) },
-                        { text: '🗑️ Delete Chat Session', style: 'destructive', onPress: () => deleteChatSession(chat.id) }
-                      ]
-                    )
-                  }}
-                >
-                  <View style={{ position: 'relative' }}>
-                    <View style={[styles.chatAvatar, { backgroundColor: chat.color, overflow: 'hidden' }]}>
-                      <UserAvatar 
-                        avatar={chat.avatar} 
-                        size={40} 
-                        textStyle={[styles.avatarText, { color: '#ffffff' }]} 
-                        fallback={chat.name[0]} 
-                      />
-                    </View>
-                    {chat.streak > 0 && (
-                      <View style={styles.streakBadge}>
-                        <Text style={styles.streakBadgeText}>
-                          🔥{chat.streak}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.chatInfo}>
-                    <Text style={[styles.chatName, { color: theme.text }]}>{chat.name}</Text>
-                    <Text style={{ color: theme.subText, fontSize: 12, marginTop: 2 }}>
-                      {chat.username ? `@${chat.username}` : (chat.phoneNumber && !chat.phoneNumber.includes('@') ? chat.phoneNumber : '')}
+                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800' }}>
+                      {syncingContacts ? '⏳ Syncing Contacts...' : '🔄 Sync Phone Contacts'}
                     </Text>
-                    <Text style={[styles.chatLast, { color: theme.subText }]}>🔐 Encrypted chat</Text>
+                    <Text style={{ color: theme.subText, fontSize: 11 }}>
+                      Find friends registered via phone number
+                    </Text>
                   </View>
-                  <TouchableOpacity
-                    style={{ padding: 10, marginRight: 8, justifyContent: 'center' }}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      Alert.alert(
-                        'Start Call',
-                        `Select Call Type for ${chat.name}:`,
-                        [
-                          { text: '📞 Voice Call', onPress: () => setShowChat(chat) },
-                          { text: '📹 Video Call', onPress: () => setShowChat(chat) },
-                          { text: 'Cancel', style: 'cancel' }
-                        ]
-                      )
-                    }}
-                  >
-                    <Icon name="call" size={20} color="#c8ff00" />
-                  </TouchableOpacity>
-                  {chat.unread > 0 && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>{chat.unread}</Text>
-                    </View>
-                  )}
+                  <View style={{ backgroundColor: theme.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 }}>
+                    <Text style={{ color: '#000000', fontSize: 11, fontWeight: '900' }}>SYNC</Text>
+                  </View>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
-            <ScrollView style={[styles.content, { padding: 16 }]} contentContainerStyle={{ gap: 16 }}>
-              {/* Premium Status Creation Trigger Card */}
-              <TouchableOpacity 
-                activeOpacity={0.9}
-                style={{
-                  backgroundColor: theme.cardBg,
-                  borderRadius: 22,
-                  padding: 16,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12
-                }}
-                onPress={() => {
-                  setStatusType('text')
-                  setShowCreateStatusModal(true)
-                }}
-              >
-                <View style={[styles.chatAvatar, { backgroundColor: theme.primary + '20', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primary + '30' }]}>
-                  <Text style={{ fontSize: 20 }}>✍️</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>Post a Status Update</Text>
-                  <Text style={{ color: theme.subText, fontSize: 12 }}>What is on your mind today?</Text>
-                </View>
-                {/* Shortcuts */}
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  <TouchableOpacity 
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => {
-                      setStatusType('text')
-                      setShowCreateStatusModal(true)
-                    }}
-                  >
-                    <Icon name="edit" size={16} color={theme.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={async () => {
-                      setStatusType('media')
-                      setShowCreateStatusModal(true)
-                      await pickStatusMedia()
-                    }}
-                  >
-                    <Icon name="photo_camera" size={16} color="#d946ef" />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => {
-                      setStatusType('link')
-                      setShowCreateStatusModal(true)
-                    }}
-                  >
-                    <Icon name="link" size={16} color="#3b82f6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => {
-                      setStatusType('audio')
-                      setShowCreateStatusModal(true)
-                    }}
-                  >
-                    <Icon name="mic" size={16} color="#ef4444" />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
 
-              {/* Status List */}
-              <View style={{ gap: 12, paddingBottom: 30 }}>
-                <Text style={{ color: theme.subText, fontWeight: '700', fontSize: 12, marginLeft: 4 }}>Recent Updates</Text>
-                {mockStatuses.map(status => (
-                  <View
-                    key={status.id}
-                    style={{
-                      backgroundColor: theme.cardBg,
-                      borderRadius: 20,
-                      padding: 14,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      gap: 10
-                    }}
-                  >
-                    {/* Status Header with Delete Button */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={[styles.chatAvatar, { backgroundColor: status.color || '#c8ff00', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
-                          <UserAvatar 
-                            avatar={status.avatar} 
-                            size={40} 
-                            textStyle={[styles.avatarText, { fontSize: 14 }]} 
-                            fallback="👤" 
-                          />
-                        </View>
-                        <View>
-                          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{status.name}</Text>
-                          <Text style={{ color: theme.subText, fontSize: 10 }}>{status.time}</Text>
-                        </View>
-                      </View>
+                <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
+                  REGISTERED CONTACTS ({users.length})
+                </Text>
 
-                      {/* Delete Status Button */}
-                      <TouchableOpacity
-                        style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#ef444415', borderRadius: 10, borderWidth: 1, borderColor: '#ef444430' }}
-                        onPress={() => {
-                          Alert.alert(
-                            'Delete Status',
-                            'Are you sure you want to delete this status update?',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: () => setMockStatuses(prev => prev.filter(s => s.id !== status.id))
-                              }
-                            ]
-                          )
-                        }}
-                      >
-                        <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '700' }}>🗑️ Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Status Content View (Full Image & No File Path Details) */}
-                    {status.content.startsWith('[MEDIA] ') ? (
-                      <View style={{ width: '100%', height: 260, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, backgroundColor: '#050508' }}>
-                        <Image 
-                          source={{ uri: status.content.replace('[MEDIA] ', '').trim() }} 
-                          style={{ width: '100%', height: '100%' }} 
-                          resizeMode="contain"
+                {users.length === 0 ? (
+                  <View style={{ padding: 30, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 36, marginBottom: 8 }}>👥</Text>
+                    <Text style={{ color: theme.subText, fontSize: 13, textAlign: 'center' }}>
+                      No contacts synced yet. Tap Sync Phone Contacts above to find your friends on VOID CHAT!
+                    </Text>
+                  </View>
+                ) : (
+                  users.filter(u => {
+                    const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
+                    if (isSelf) return false
+                    if (inboxSearchQuery.trim()) {
+                      return (u.username || u.name || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())
+                    }
+                    return true
+                  }).map(u => (
+                    <TouchableOpacity
+                      key={u._id || u.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: 12,
+                        backgroundColor: theme.cardBg,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        gap: 12
+                      }}
+                      onPress={async () => {
+                        await handleSelectUserToChat(u)
+                        const newChatObj = {
+                          id: u._id || u.id,
+                          name: u.name || u.username,
+                          username: u.username,
+                          phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
+                          color: '#c8ff00',
+                          avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
+                          streak: 0,
+                          unread: 0
+                        }
+                        setShowChat(newChatObj)
+                      }}
+                    >
+                      <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+                        <UserAvatar
+                          avatar={u.avatar}
+                          size={44}
+                          textStyle={{ color: '#000', fontSize: 16, fontWeight: '900' }}
+                          fallback={(u.username || u.name || 'U')[0].toUpperCase()}
                         />
                       </View>
-                    ) : status.content.startsWith('[LINK] ') ? (
-                      <TouchableOpacity onPress={() => handleOpenLink(status.content.replace('[LINK] ', ''))} style={{ marginTop: 4 }}>
-                        <Text style={{ color: '#3b82f6', fontSize: 13, textDecorationLine: 'underline', fontWeight: '700' }}>
-                          🔗 {status.content.replace('[LINK] ', '')}
-                        </Text>
-                      </TouchableOpacity>
-                    ) : status.content.startsWith('[AUDIO] ') ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, backgroundColor: theme.bg, padding: 10, borderRadius: 12, alignSelf: 'flex-start' }}>
-                        <Icon name="mic" size={16} color="#ef4444" />
-                        <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>🎙️ Voice Status (0:05)</Text>
-                      </View>
-                    ) : (
-                      <View style={{
-                        backgroundColor: status.color && status.color !== '#c8ff00' ? status.color : 'transparent',
-                        padding: status.color && status.color !== '#c8ff00' ? 12 : 0,
-                        borderRadius: 12,
-                        marginTop: 4
-                      }}>
-                        <Text style={{ 
-                          color: status.color && status.color !== '#c8ff00' ? '#ffffff' : theme.text, 
-                          fontSize: 14, 
-                          fontWeight: status.color && status.color !== '#c8ff00' ? '800' : 'normal',
-                          lineHeight: 20 
-                        }}>
-                          {status.content}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>@{u.username || u.name}</Text>
+                        <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
+                          {u.phone || u.phoneNumber || u.email || 'Registered Contact'}
                         </Text>
                       </View>
-                    )}
-                  </View>
-                ))}
+                      <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
+                        <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>💬 Chat</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                )}
               </View>
             </ScrollView>
-          )}
-        </View>
-      ) : (
+          </View>
+        </ScrollView>
+      </View>
+    ) : (
         <ScrollView style={styles.content}>
           <View style={[styles.adBanner, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
             <Text style={[styles.adText, { color: theme.subText }]}>📢 Social DMs & Updates</Text>
@@ -2700,8 +3253,51 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }, isLargeScreen && { maxWidth: '100%', borderLeftWidth: 0, borderRightWidth: 0 }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg, paddingTop: universalTopInset }, isLargeScreen && { maxWidth: '100%', borderLeftWidth: 0, borderRightWidth: 0 }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#060608" translucent={true} />
+
+      {/* ── Real-Time In-App Notification Toast Banner ── */}
+      {inAppBanner && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => {
+            const contactToOpen = inAppBanner.contact || { id: inAppBanner.senderId, _id: inAppBanner.senderId, name: inAppBanner.title }
+            setSelectedChatContact(contactToOpen)
+            setShowChat(contactToOpen)
+            setInAppBanner(null)
+          }}
+          style={{
+            position: 'absolute',
+            top: Platform.OS === 'ios' ? 50 : 25,
+            left: 16,
+            right: 16,
+            zIndex: 99999,
+            backgroundColor: '#12121a',
+            borderRadius: 16,
+            padding: 14,
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: '#c8ff0050',
+            shadowColor: '#c8ff00',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.4,
+            shadowRadius: 10,
+            elevation: 12,
+          }}
+        >
+          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#c8ff0020', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#c8ff0040' }}>
+            <Text style={{ fontSize: 20 }}>💬</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: '800' }}>{inAppBanner.title}</Text>
+            <Text style={{ color: '#8b8ba7', fontSize: 12, marginTop: 2 }} numberOfLines={1}>{inAppBanner.message}</Text>
+          </View>
+          <TouchableOpacity onPress={() => setInAppBanner(null)} style={{ padding: 6, marginLeft: 8 }}>
+            <Text style={{ color: '#8b8ba7', fontSize: 16, fontWeight: '800' }}>✕</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
 
       {isLargeScreen ? (
         <View style={styles.splitLayoutContainer}>
@@ -2841,6 +3437,7 @@ export default function App() {
             {activeTab === 'feed' && renderFeedContent()}
             {activeTab === 'reels' && <ReelsScreen />}
             {activeTab === 'inbox' && renderInboxContent()}
+            {activeTab === 'explore' && renderExploreContent()}
             {activeTab === 'settings' && renderSettingsContent()}
             {activeTab === 'refer' && <ReferScreen />}
             {activeTab === 'profile' && renderProfileContent()}
@@ -2852,7 +3449,7 @@ export default function App() {
               { id: 'feed', icon: 'home', label: 'Feed' },
               { id: 'reels', icon: 'smart_display', label: 'Reels' },
               { id: 'streak', icon: 'camera_alt', label: '', special: true },
-              { id: 'inbox', icon: 'inbox', label: 'Inbox' },
+              { id: 'explore', icon: 'search', label: 'Explore' },
               { id: 'settings', icon: 'settings', label: 'Settings' },
             ].filter(tab => appMode === 'social' || (tab.id !== 'feed' && tab.id !== 'reels' && tab.id !== 'streak'))
              .map(tab => (
@@ -3184,6 +3781,7 @@ export default function App() {
               blockedUsers={currentUserBlockedList}
               messageTextSize={messageTextSize}
               chatWallpaper={chatWallpaper}
+              userBubbleTheme={userBubbleTheme}
               nameColor={nameColor}
               onBlockToggle={(id) => handleToggleBlock(id, '')}
               onLockToggle={handleLockToggle}
@@ -3411,7 +4009,504 @@ export default function App() {
               <Text style={styles.VOIDInfoItem}>• Streak message pays standard coins + multiplier bonuses!</Text>
             </View>
           </View>
+      {/* 📸 Telegram/WhatsApp-Style DP Editor Studio Modal */}
+      <Modal
+        visible={showDpEditorModal}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowDpEditorModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#060608', justifyContent: 'space-between' }}>
+          {/* Header Bar */}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderBottomWidth: 1,
+            borderBottomColor: '#1e1e2c'
+          }}>
+            <TouchableOpacity onPress={() => setShowDpEditorModal(false)} style={{ padding: 6 }}>
+              <Text style={{ color: '#8b8ba7', fontSize: 16, fontWeight: '800' }}>✕ Cancel</Text>
+            </TouchableOpacity>
+
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '900' }}>✨ DP Editor Studio</Text>
+              <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '700' }}>Aesthetic Filters & Crop</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setDpRotation(prev => (prev + 90) % 360)}
+              style={{ padding: 6 }}
+            >
+              <Text style={{ color: '#c8ff00', fontSize: 14, fontWeight: '800' }}>🔄 Rotate</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Main Image Studio Preview View */}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+            <View style={{
+              width: 280,
+              height: 280,
+              borderRadius: 140,
+              overflow: 'hidden',
+              borderWidth: 3,
+              borderColor: '#c8ff00',
+              shadowColor: '#c8ff00',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.6,
+              shadowRadius: 20,
+              elevation: 10,
+              backgroundColor: '#12121a',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              {dpRawImageUri ? (
+                <Image
+                  source={{ uri: dpRawImageUri }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    transform: [{ rotate: `${dpRotation}deg` }]
+                  }}
+                  resizeMode="cover"
+                />
+              ) : null}
+            </View>
+          </View>
+
+          {/* Filter Selection Carousel */}
+          <View style={{ paddingVertical: 16, backgroundColor: '#0e0e14', borderTopWidth: 1, borderTopColor: '#1e1e2c', gap: 12 }}>
+            <Text style={{ color: '#8b8ba7', fontSize: 11, fontWeight: '800', textAlign: 'center', letterSpacing: 1 }}>
+              CHOOSE AESTHETIC FILTER
+            </Text>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+              {[
+                { id: 'normal', label: 'Original', icon: '📷' },
+                { id: 'cyber', label: '✨ Cyber Neon', icon: '⚡' },
+                { id: 'bw', label: '🖤 Vintage B&W', icon: '🎬' },
+                { id: 'sunset', label: '🌅 Sunset Glow', icon: '🌇' },
+                { id: 'cool', label: '❄️ Cool Cyber', icon: '🔮' },
+              ].map(filter => (
+                <TouchableOpacity
+                  key={filter.id}
+                  onPress={() => setDpSelectedFilter(filter.id)}
+                  style={{
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 16,
+                    backgroundColor: dpSelectedFilter === filter.id ? '#c8ff00' : '#181822',
+                    borderWidth: 1,
+                    borderColor: dpSelectedFilter === filter.id ? '#c8ff00' : '#2e2e3e',
+                    gap: 4
+                  }}
+                >
+                  <Text style={{ fontSize: 18 }}>{filter.icon}</Text>
+                  <Text style={{
+                    color: dpSelectedFilter === filter.id ? '#000000' : '#ffffff',
+                    fontSize: 11,
+                    fontWeight: '800'
+                  }}>
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Glowing Action Button */}
+            <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#c8ff00',
+                  paddingVertical: 15,
+                  borderRadius: 18,
+                  alignItems: 'center',
+                  shadowColor: '#c8ff00',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 10,
+                  elevation: 6
+                }}
+                onPress={async () => {
+                  if (!dpRawImageUri) return
+                  setTempAvatar(dpRawImageUri)
+                  setChatAvatar(dpRawImageUri)
+                  setSocialAvatar(dpRawImageUri)
+                  try {
+                    await updatePreferences({ avatar: dpRawImageUri })
+                  } catch (e) {}
+                  setShowDpEditorModal(false)
+                  Alert.alert('⚡ Success', 'Profile picture updated globally!')
+                }}
+              >
+                <Text style={{ color: '#060608', fontSize: 15, fontWeight: '900', letterSpacing: 0.5 }}>
+                  ⚡ Set Profile DP Globally
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </SafeAreaView>
+      </Modal>
+
+      {/* ── 3-Dots Post Action Menu Modal ── */}
+      <Modal
+        visible={showPostMenuModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPostMenuModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}
+          onPress={() => setShowPostMenuModal(false)}
+        >
+          <View style={{
+            backgroundColor: theme.cardBg,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            borderWidth: 1,
+            borderColor: theme.border,
+            padding: 20,
+            gap: 12
+          }}>
+            {/* Header handle */}
+            <View style={{ width: 40, height: 4, backgroundColor: '#3f3f46', borderRadius: 2, alignSelf: 'center', marginBottom: 4 }} />
+
+            <Text style={{ color: theme.subText, fontSize: 11, fontWeight: '800', textAlign: 'center', marginBottom: 4 }}>
+              POST OPTIONS
+            </Text>
+
+            {/* 📌 Option 1: Pin to Profile */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 14,
+                backgroundColor: '#161622',
+                borderRadius: 14,
+                gap: 12,
+                borderWidth: 1,
+                borderColor: '#2e2e3e'
+              }}
+              onPress={() => selectedPostForMenu && handleTogglePinPost(selectedPostForMenu)}
+            >
+              <Text style={{ fontSize: 18 }}>📌</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>
+                  {pinnedPostIds.includes(selectedPostForMenu?._id || selectedPostForMenu?.id) ? 'Unpin from Profile' : 'Pin to Profile'}
+                </Text>
+                <Text style={{ color: theme.subText, fontSize: 11 }}>Feature this post at top of profile</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* 💬 Option 2: Turn Off Comments */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 14,
+                backgroundColor: '#161622',
+                borderRadius: 14,
+                gap: 12,
+                borderWidth: 1,
+                borderColor: '#2e2e3e'
+              }}
+              onPress={() => selectedPostForMenu && handleToggleDisableComments(selectedPostForMenu)}
+            >
+              <Text style={{ fontSize: 18 }}>🔇</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '700' }}>
+                  {disabledCommentsPostIds.includes(selectedPostForMenu?._id || selectedPostForMenu?.id) ? 'Turn On Comments' : 'Turn Off Comments'}
+                </Text>
+                <Text style={{ color: theme.subText, fontSize: 11 }}>Control audience comments on this post</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* 🗑️ Option 3: Delete Post (For Author/Admin) */}
+            {(isPostOwner(selectedPostForMenu) || isPremiumUser) && (
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: 14,
+                  backgroundColor: '#2a1215',
+                  borderRadius: 14,
+                  gap: 12,
+                  borderWidth: 1,
+                  borderColor: '#ef444450'
+                }}
+                onPress={() => {
+                  setShowPostMenuModal(false)
+                  if (selectedPostForMenu) handleDeletePost(selectedPostForMenu)
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>🗑️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '800' }}>Delete Post</Text>
+                  <Text style={{ color: '#fca5a5', fontSize: 11 }}>Permanently purge from cloud & feed</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              style={{
+                paddingVertical: 12,
+                alignItems: 'center',
+                marginTop: 4
+              }}
+              onPress={() => setShowPostMenuModal(false)}
+            >
+              <Text style={{ color: theme.subText, fontSize: 14, fontWeight: '700' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* 👁️ Status Viewers Modal */}
+      <Modal
+        visible={showStatusViewersModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowStatusViewersModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={{ flex: 1, backgroundColor: 'rgba(3, 3, 8, 0.88)', justifyContent: 'flex-end' }}
+          onPress={() => setShowStatusViewersModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: '#090a10',
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              borderWidth: 1.5,
+              borderColor: '#6366f160',
+              padding: 22,
+              maxHeight: '70%',
+              gap: 14,
+              shadowColor: '#6366f1',
+              shadowOffset: { width: 0, height: -6 },
+              shadowOpacity: 0.4,
+              shadowRadius: 20,
+              elevation: 15
+            }}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1e1e2c', paddingBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 20 }}>👁️</Text>
+                <Text style={{ color: '#f0f0ff', fontSize: 16, fontWeight: '900' }}>
+                  Status Views ({selectedStatusForViewers?.viewers?.length || 0})
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowStatusViewersModal(false)} style={{ padding: 6 }}>
+                <Text style={{ color: '#8b8ba7', fontSize: 16, fontWeight: '800' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Viewers List */}
+            <ScrollView style={{ width: '100%' }} contentContainerStyle={{ gap: 10 }}>
+              {(!selectedStatusForViewers?.viewers || selectedStatusForViewers.viewers.length === 0) ? (
+                <View style={{ padding: 30, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 36, marginBottom: 8 }}>👁️</Text>
+                  <Text style={{ color: '#8b8ba7', fontSize: 13, textAlign: 'center' }}>
+                    No views yet. Only contacts who have saved your number can view your status updates.
+                  </Text>
+                </View>
+              ) : (
+                selectedStatusForViewers.viewers.map(viewer => (
+                  <View
+                    key={viewer.id}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      padding: 12,
+                      backgroundColor: '#12121a',
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: '#1e1e2c',
+                      justify.content: 'space-between'
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#6366f120', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#6366f140' }}>
+                        <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '800' }}>{viewer.avatar || '👤'}</Text>
+                      </View>
+                      <View>
+                        <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: '800' }}>{viewer.name}</Text>
+                        <Text style={{ color: '#8b8ba7', fontSize: 11, marginTop: 1 }}>@{viewer.username}</Text>
+                      </View>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: '#818cf8', fontSize: 11, fontWeight: '700' }}>{viewer.time}</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* 📸 WhatsApp-Style Status Media Preview & Video Trimmer Modal */}
+      <Modal
+        visible={showStatusMediaPreview}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowStatusMediaPreview(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#040406', justifyContent: 'space-between' }}>
+          {/* Header */}
+          <SafeAreaView>
+            <View style={{
+              flexDirection: 'row',
+              justify.content: 'space-between',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              backgroundColor: 'rgba(9, 10, 16, 0.95)',
+              borderBottomWidth: 1,
+              borderBottomColor: '#1e1e2c'
+            }}>
+              <TouchableOpacity
+                onPress={() => setShowStatusMediaPreview(false)}
+                style={{ padding: 6 }}
+              >
+                <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '800' }}>✕</Text>
+              </TouchableOpacity>
+
+              <View style={{ alignItems: 'center' }}>
+                <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: '900' }}>
+                  {statusMediaType === 'video' ? '📹 Status Video Preview' : '🖼️ Status Image Preview'}
+                </Text>
+                <Text style={{ color: '#c8ff00', fontSize: 10, fontWeight: '800' }}>
+                  Visible to Saved Contacts
+                </Text>
+              </View>
+
+              <View style={{ width: 24 }} />
+            </View>
+
+            {/* Video Range Trimmer Bar (Shown for Videos) */}
+            {statusMediaType === 'video' && (
+              <View style={{
+                backgroundColor: '#12121e',
+                marginHorizontal: 16,
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#c8ff0040',
+                gap: 8
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: '#c8ff00', fontSize: 12, fontWeight: '800' }}>
+                    ✂️ Video Trim Segment:
+                  </Text>
+                  <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '900' }}>
+                    {Math.floor(statusTrimStart / 60)}:{statusTrimStart % 60 < 10 ? '0' : ''}{statusTrimStart % 60} ── {Math.floor(statusTrimEnd / 60)}:{statusTrimEnd % 60 < 10 ? '0' : ''}{statusTrimEnd % 60}
+                  </Text>
+                </View>
+
+                {/* Interactive Segment Trimmer Buttons (Up to 2 Minutes) */}
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {[
+                    { label: '0:00 - 0:30', start: 0, end: 30 },
+                    { label: '0:30 - 1:00', start: 30, end: 60 },
+                    { label: '1:00 - 1:30', start: 60, end: 90 },
+                    { label: '1:30 - 2:00', start: 90, end: 120 },
+                    { label: 'Full 2 Mins ⚡', start: 0, end: 120 }
+                  ].map((seg, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      onPress={() => {
+                        setStatusTrimStart(seg.start)
+                        setStatusTrimEnd(seg.end)
+                      }}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 10,
+                        backgroundColor: (statusTrimStart === seg.start && statusTrimEnd === seg.end) ? '#c8ff00' : '#1e1e2c',
+                        borderWidth: 1,
+                        borderColor: (statusTrimStart === seg.start && statusTrimEnd === seg.end) ? '#c8ff00' : '#3f3f46'
+                      }}
+                    >
+                      <Text style={{ color: (statusTrimStart === seg.start && statusTrimEnd === seg.end) ? '#000000' : '#ffffff', fontSize: 10, fontWeight: '800' }}>
+                        {seg.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+          </SafeAreaView>
+
+          {/* Main Media Preview Area */}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+            {statusMediaUri ? (
+              <View style={{ width: '100%', height: '100%', borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#1e1e2c', backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
+                <Image
+                  source={{ uri: statusMediaUri }}
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="contain"
+                />
+                {statusMediaType === 'video' && (
+                  <View style={{ position: 'absolute', width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#c8ff00' }}>
+                    <Text style={{ fontSize: 24, marginLeft: 3 }}>▶️</Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
+          </View>
+
+          {/* Bottom Caption Bar & Floating Post Button */}
+          <SafeAreaView style={{ backgroundColor: 'rgba(9, 10, 16, 0.95)', borderTopWidth: 1, borderTopColor: '#1e1e2c' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}>
+              <TextInput
+                style={{
+                  flex: 1,
+                  backgroundColor: '#12121a',
+                  color: '#ffffff',
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  borderColor: '#27272a',
+                  fontSize: 14
+                }}
+                placeholder="Add a caption..."
+                placeholderTextColor="#6b7280"
+                value={statusCaptionText}
+                onChangeText={setStatusCaptionText}
+              />
+
+              <TouchableOpacity
+                onPress={handlePostStatusMedia}
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 26,
+                  backgroundColor: '#c8ff00',
+                  justify.content: 'center',
+                  alignItems: 'center',
+                  shadowColor: '#c8ff00',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.6,
+                  shadowRadius: 12,
+                  elevation: 10
+                }}
+              >
+                <Icon name="send" size={24} color="#000000" />
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Wallet Modal */}
@@ -3817,6 +4912,49 @@ export default function App() {
                       <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: combo.primary }} />
                       <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: combo.name }} />
                     </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* 💬 Chat Message Bubble Colors Section */}
+            <View style={[styles.settingsSection, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+              <Text style={[styles.settingsSectionTitle, { color: theme.primary }]}>💬 Chat Bubble Colors</Text>
+              <Text style={{ color: theme.subText, fontSize: 11, marginTop: 2, marginBottom: 10 }}>
+                Customize your outgoing and incoming message bubble card colors.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {[
+                  { id: 'cyber_pink', label: '🌸 Cyber Pink', me: '#d946ef', them: '#1f2937' },
+                  { id: 'neon_lime', label: '🟢 Neon Lime', me: '#15803d', them: '#121e14' },
+                  { id: 'electric_blue', label: '⚡ Electric Blue', me: '#2563eb', them: '#0f172a' },
+                  { id: 'sunset_orange', label: '🔥 Sunset Orange', me: '#ea580c', them: '#1c120c' },
+                  { id: 'obsidian_purple', label: '🔮 Obsidian Purple', me: '#7c3aed', them: '#150d2a' },
+                  { id: 'crimson_red', label: '🔴 Crimson Red', me: '#dc2626', them: '#1c0d0d' },
+                ].map((bScheme) => (
+                  <TouchableOpacity
+                    key={bScheme.id}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 14,
+                      backgroundColor: userBubbleTheme === bScheme.id ? theme.primary + '20' : '#12121a',
+                      borderWidth: 1.5,
+                      borderColor: userBubbleTheme === bScheme.id ? theme.primary : '#27272a',
+                      minWidth: '47%'
+                    }}
+                    onPress={() => handleSelectBubbleTheme(bScheme.id)}
+                  >
+                    <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}>
+                      <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: bScheme.me }} />
+                      <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: bScheme.them }} />
+                    </View>
+                    <Text style={{ color: theme.text, fontSize: 11, fontWeight: '800' }}>
+                      {bScheme.label}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -6749,7 +7887,6 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     height: '100%',
     minHeight: Platform.OS === 'web' ? '100vh' : '100%',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   splitLayoutContainer: {
     flex: 1,
