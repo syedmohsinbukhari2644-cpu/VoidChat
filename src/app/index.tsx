@@ -121,6 +121,7 @@ export default function App() {
   const [pkrValue, setPkrValue] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [showChat, setShowChat] = useState(false)
+  const [selectedChatContact, setSelectedChatContact] = useState(null)
   const [isCallActiveGlobally, setCallActiveGlobally] = useState(false)
   const [activeCallContact, setActiveCallContact] = useState(null)
   const [showNotifs, setShowNotifs] = useState(false)
@@ -191,7 +192,6 @@ export default function App() {
   const [statusTrimEnd, setStatusTrimEnd] = useState(30)
   const [statusCaptionText, setStatusCaptionText] = useState('')
   const swipeScrollViewRef = useRef(null)
-  const { width: windowWidth } = useWindowDimensions()
   const [userBubbleTheme, setUserBubbleTheme] = useState('cyber_pink')
 
   useEffect(() => {
@@ -718,7 +718,7 @@ export default function App() {
 
   useEffect(() => {
     showChatRef.current = showChat
-    selectedChatContactRef.current = selectedChatContact
+    selectedChatContactRef.current = (typeof showChat === 'object' && showChat !== null) ? showChat : selectedChatContact
     usersRef.current = users
   }, [showChat, selectedChatContact, users])
 
@@ -1737,26 +1737,6 @@ export default function App() {
       setActiveTab('inbox')
     } else {
       setActiveTab('feed')
-    }
-  }
-
-  const pickStatusMedia = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Photos permission is required to share image/video status!')
-        return
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: true,
-        quality: 0.8,
-      })
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setStatusMediaUri(result.assets[0].uri)
-      }
-    } catch (e) {
-      Alert.alert('Error', 'Failed to pick image/video!')
     }
   }
 
@@ -2871,7 +2851,6 @@ export default function App() {
                     </TouchableOpacity>
                   )
                 })}
-              </View>
             </ScrollView>
           </View>
 
@@ -4009,6 +3988,9 @@ export default function App() {
               <Text style={styles.VOIDInfoItem}>• Streak message pays standard coins + multiplier bonuses!</Text>
             </View>
           </View>
+        </SafeAreaView>
+      </Modal>
+
       {/* 📸 Telegram/WhatsApp-Style DP Editor Studio Modal */}
       <Modal
         visible={showDpEditorModal}
@@ -4330,7 +4312,7 @@ export default function App() {
                       borderRadius: 16,
                       borderWidth: 1,
                       borderColor: '#1e1e2c',
-                      justify.content: 'space-between'
+                      justifyContent: 'space-between'
                     }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -4365,7 +4347,7 @@ export default function App() {
           <SafeAreaView>
             <View style={{
               flexDirection: 'row',
-              justify.content: 'space-between',
+              justifyContent: 'space-between',
               alignItems: 'center',
               paddingHorizontal: 16,
               paddingVertical: 12,
@@ -4493,7 +4475,7 @@ export default function App() {
                   height: 52,
                   borderRadius: 26,
                   backgroundColor: '#c8ff00',
-                  justify.content: 'center',
+                  justifyContent: 'center',
                   alignItems: 'center',
                   shadowColor: '#c8ff00',
                   shadowOffset: { width: 0, height: 4 },

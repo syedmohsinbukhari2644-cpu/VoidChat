@@ -23,7 +23,7 @@ const C = {
 export default function LoginScreen({ onLogin }) {
   const insets = useSafeAreaInsets()
   const topInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
-  const [step, setStep] = useState('landing')
+  const [step, setStep] = useState('main')
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
   const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')
@@ -91,7 +91,7 @@ export default function LoginScreen({ onLogin }) {
       setToken(token)
       onLogin(token, VOIDBalance)
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Error!')
+      Alert.alert('Error', e.message || e.response?.data?.message || 'Registration failed!')
     }
     setLoading(false)
   }
@@ -108,7 +108,7 @@ export default function LoginScreen({ onLogin }) {
       setToken(token)
       onLogin(token, VOIDBalance)
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Error!')
+      Alert.alert('Error', e.message || e.response?.data?.message || 'Login failed!')
     }
     setLoading(false)
   }
@@ -245,9 +245,49 @@ export default function LoginScreen({ onLogin }) {
           </View>
         )}
 
-        {/* ── STEP: Main ───────────────────────────────── */}
+        {/* ── STEP: Main (Direct Premium Login / Sign-up Home) ──────────────── */}
         {step === 'main' && (
           <>
+            {/* Top Bar with APK Download Pill */}
+            <View style={{
+              width: '100%',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 16,
+              paddingHorizontal: 4
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 20 }}>🔓</Text>
+                <Text style={{ color: C.text, fontSize: 16, fontWeight: '900', letterSpacing: 1 }}>VOID CHAT</Text>
+              </View>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: 'rgba(200, 255, 0, 0.1)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: C.primary
+                }}
+                onPress={() => {
+                  if (Platform.OS === 'web') {
+                    window.open('https://drive.google.com/file/d/14sFEjRLzp82kTnT5vtFMtM6YBImosYNZ/view?usp=sharing', '_blank')
+                  } else {
+                    Alert.alert('Download APK', 'Android APK is available for download at: voidchat.tech')
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 12 }}>🤖</Text>
+                <Text style={{ color: C.primary, fontSize: 11, fontWeight: '800' }}>Download APK</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Login / Register tab switcher */}
             <View style={styles.toggle}>
               <TouchableOpacity
@@ -282,7 +322,7 @@ export default function LoginScreen({ onLogin }) {
                 <Text style={styles.inputEmoji}>📱</Text>
                 <TextInput
                   style={styles.inputField}
-                  placeholder="Email or Phone (+92300...)"
+                  placeholder="Email or Phone Number"
                   placeholderTextColor={C.faint}
                   value={email}
                   onChangeText={setEmail}

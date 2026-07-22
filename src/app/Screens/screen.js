@@ -285,30 +285,6 @@ export default function ChatScreen({
   const [imageCaption, setImageCaption] = useState('')
   const [replyingToMsg, setReplyingToMsg] = useState(null)
 
-  const handleMsgLongPress = (msg) => {
-    const previewText = msg.text || msg.content || 'Message'
-    Alert.alert(
-      '💬 Message Options',
-      `Choose action for: "${previewText.length > 30 ? previewText.substring(0, 30) + '...' : previewText}"`,
-      [
-        {
-          text: '↩️ Reply to Message',
-          onPress: () => setReplyingToMsg(msg)
-        },
-        {
-          text: '📋 Copy Text',
-          onPress: () => {
-            if (Platform.OS === 'web' && navigator.clipboard) {
-              navigator.clipboard.writeText(previewText)
-            }
-            Alert.alert('Copied', 'Message copied to clipboard!')
-          }
-        },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    )
-  }
-
   useEffect(() => {
     const checkSavedStatus = async () => {
       try {
@@ -1504,7 +1480,7 @@ export default function ChatScreen({
           borderBottomColor: '#22c55e30',
           flexDirection: 'row',
           alignItems: 'center',
-          justify.content: 'space-between',
+          justifyContent: 'space-between',
           zIndex: 10,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -2476,12 +2452,16 @@ export default function ChatScreen({
                   >
                     <Text style={{ color: '#050608', fontSize: 12, fontWeight: '900' }}>Send ⚡</Text>
                   </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {/* ↩️ Replying To Message Banner */}
             {replyingToMsg && (
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                justify.content: 'space-between',
+                justifyContent: 'space-between',
                 backgroundColor: '#12121e',
                 paddingHorizontal: 14,
                 paddingVertical: 8,
@@ -3046,7 +3026,7 @@ export default function ChatScreen({
                   height: 48,
                   borderRadius: 24,
                   backgroundColor: '#c8ff00',
-                  justify.content: 'center',
+                  justifyContent: 'center',
                   alignItems: 'center',
                   shadowColor: '#c8ff00',
                   shadowOffset: { width: 0, height: 4 },

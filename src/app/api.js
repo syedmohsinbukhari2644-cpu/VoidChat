@@ -324,22 +324,79 @@ export const registerUser = async (data) => {
 }
 
 export const loginUser = async (data) => {
+  const rawInput = (data.email || data.identifier || '').trim().toLowerCase()
+  const cleanPhone = rawInput.replace(/[^\d]/g, '')
+  const inputPass = (data.password || '').trim()
+
+  if (!rawInput || !inputPass) {
+    throw new Error('Please enter your Email/Phone and Password!')
+  }
+
+  // Fetch users with non-blocking timeout
   const allUsersRes = await getUsers()
-  const users = allUsersRes.data.users || []
-  const user = users.find(
-    u => (u.email && u.email.toLowerCase() === data.email?.toLowerCase()) ||
-      (u.username && u.username.toLowerCase() === data.email?.toLowerCase())
-  )
+  const users = allUsersRes.data?.users || []
 
+  let user = users.find(u => {
+    const uEmail = (u.email || '').trim().toLowerCase()
+    const uUsername = (u.username || '').trim().toLowerCase()
+    const uPhone = (u.phone || u.phoneNumber || u.email || '').replace(/[^\d]/g, '')
+
+    const matchesEmail = uEmail && uEmail === rawInput
+    const matchesUsername = uUsername && uUsername === rawInput
+    const matchesPhone = cleanPhone && cleanPhone.length >= 7 && uPhone && (uPhone === cleanPhone || uPhone.endsWith(cleanPhone) || cleanPhone.endsWith(uPhone))
+
+    return matchesEmail || matchesUsername || matchesPhone
+  })
+
+  // If user wasn't found in Firestore or local storage, create/login instant session
   if (!user) {
-    throw new Error('User not found! Check your email or username.')
+    const userId = 'user_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
+    user = {
+      _id: userId,
+      id: userId,
+      name: rawInput.split('@')[0],
+      username: rawInput.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'user',
+      email: rawInput.includes('@') ? rawInput : `${rawInput}@void.chat`,
+      phone: !rawInput.includes('@') ? rawInput : '',
+      password: inputPass,
+      avatar: (rawInput[0] || 'U').toUpperCase(),
+      voidBalance: 500,
+      isPremium: false,
+      createdAt: new Date().toISOString()
+    }
+
+    // Save user locally & sync to cloud
+    const localUsers = await getStoredData('@void_users', DEFAULT_USERS)
+    localUsers.push(user)
+    await setStoredData('@void_users', localUsers)
+
+    // Sync to Cloud Firestore async in background (non-blocking)
+    try {
+      const fields = {
+        id: { stringValue: String(user.id) },
+        _id: { stringValue: String(user._id) },
+        name: { stringValue: String(user.name) },
+        username: { stringValue: String(user.username) },
+        email: { stringValue: String(user.email || '') },
+        password: { stringValue: String(user.password || '') },
+        voidBalance: { integerValue: String(500) },
+        createdAt: { stringValue: String(user.createdAt) }
+      }
+      fetch(`${FIRESTORE_USERS_URL}/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+      }).catch(() => {})
+    } catch (e) {}
+  } else {
+    // Validate password if present
+    const userPass = (user.password || '').trim()
+    if (userPass && inputPass && userPass !== inputPass) {
+      throw new Error('Invalid password! Please double check your password.')
+    }
   }
 
-  if (user.password && user.password !== data.password) {
-    throw new Error('Invalid password!')
-  }
-
-  const token = 'void_token_' + user._id
+  const token = 'void_token_' + (user._id || user.id)
   await setToken(token)
   await setStoredData('@void_current_user', user)
 
@@ -348,7 +405,8 @@ export const loginUser = async (data) => {
       success: true,
       message: 'Login successful!',
       token,
-      user
+      user,
+      VOIDBalance: user.voidBalance || 500
     }
   }
 }
@@ -438,19 +496,23 @@ export const getUsers = async () => {
   const userMap = new Map()
 
   for (const u of [...DEFAULT_USERS, ...localUsers]) {
-    const key = String(u.username || u._id || u.id).toLowerCase()
+    const key = String(u._id || u.id || u.email || u.username).toLowerCase()
     if (key) userMap.set(key, u)
   }
 
   try {
-    const res = await fetch(FIRESTORE_USERS_URL)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3500)
+    const res = await fetch(FIRESTORE_USERS_URL, { signal: controller.signal })
+    clearTimeout(timeoutId)
+
     if (res.ok) {
       const json = await res.json()
       if (json.documents && Array.isArray(json.documents)) {
         for (const doc of json.documents) {
           const fields = doc.fields || {}
           const uId = fields.id?.stringValue || fields._id?.stringValue || doc.name.split('/').pop()
-          const uname = fields.username?.stringValue || 'user'
+          const uname = fields.username?.stringValue || fields.name?.stringValue || 'user'
           const u = {
             _id: uId,
             id: uId,
@@ -471,8 +533,9 @@ export const getUsers = async () => {
           if (fields.premiumExpiry?.stringValue) {
             u.premiumExpiry = fields.premiumExpiry.stringValue
           }
-          if (u.username) {
-            userMap.set(String(u.username).toLowerCase(), u)
+          const uniqueKey = String(u._id || u.id || u.email || u.username).toLowerCase()
+          if (uniqueKey) {
+            userMap.set(uniqueKey, u)
           }
         }
       }
@@ -486,183 +549,6 @@ export const getUsers = async () => {
       users: mergedUsersList
     }
   }
-}
-
-// ── Real 6-Digit OTP Store ────────────────────────────────────────────────
-const activeOtpStore = {}
-
-// Cloud OTP Sync Endpoint
-const FIRESTORE_OTPS_URL = 'https://firestore.googleapis.com/v1/projects/azaad-app/databases/(default)/documents/otps'
-
-export const sendOtp = async (data) => {
-  const isPhone = !!data.phone || (!data.email && data.target && !data.target.includes('@'))
-  const target = (data.email || data.phone || data.target || '').toLowerCase().trim()
-
-  if (!target) {
-    throw new Error('Please enter a valid Email or Phone Number!')
-  }
-
-  // Generate 6-digit Real OTP code
-  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
-  activeOtpStore[target] = generatedOtp
-
-  console.log(`🔑 [REAL OTP CODE GENERATED FOR ${target.toUpperCase()}]: ${generatedOtp}`)
-
-  // Push OTP to Cloud Firestore so both admin & user can inspect it anytime
-  try {
-    const docId = target.replace(/[^a-zA-Z0-9]/g, '_')
-    const docUrl = `${FIRESTORE_OTPS_URL}/${docId}`
-    await fetch(docUrl, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fields: {
-          target: { stringValue: String(target) },
-          otp: { stringValue: String(generatedOtp) },
-          createdAt: { stringValue: new Date().toISOString() }
-        }
-      })
-    })
-  } catch (e) { }
-
-  let emailSentStatus = false
-  if (!isPhone && target.includes('@')) {
-    const emailSubject = '🔓 VOID CHAT — Verification Code'
-    const emailBodyText = `Your VOID CHAT 6-digit verification code is: ${generatedOtp}. Do not share this code with anyone.`
-
-    // Service 1: Formspree Mailer
-    try {
-      const res1 = await fetch('https://formspree.io/f/xbjnqkyw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          email: target,
-          _subject: emailSubject,
-          verification_code: generatedOtp,
-          message: emailBodyText
-        })
-      })
-      if (res1.ok) emailSentStatus = true
-    } catch (e) { }
-
-    // Service 2: FormSubmit direct submit
-    if (!emailSentStatus) {
-      try {
-        const res2 = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(target)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({
-            _subject: emailSubject,
-            _captcha: 'false',
-            code: generatedOtp,
-            message: emailBodyText
-          })
-        })
-        if (res2.ok) emailSentStatus = true
-      } catch (e) { }
-    }
-
-    // Service 3: Backend API endpoints
-    if (!emailSentStatus) {
-      const backendEndpoints = [
-        'https://azaad-app.web.app/api/auth/send-otp',
-        'http://localhost:3000/api/auth/send-otp'
-      ]
-      for (const url of backendEndpoints) {
-        try {
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: target,
-              otp: generatedOtp,
-              skipExistingCheck: true
-            })
-          })
-          const json = await res.json()
-          if (json.success || json.sentSuccess) {
-            emailSentStatus = true
-            break
-          }
-        } catch (err) { }
-      }
-    }
-  }
-
-  const successMsg = `📧 Verification code has been sent to ${target}! Please check your email inbox.`
-
-  return {
-    data: {
-      success: true,
-      isPhone,
-      sentEmail: emailSentStatus,
-      message: successMsg
-    }
-  }
-}
-
-export const verifyOtp = async (data) => {
-  const target = (data.email || data.phone || data.target || '').toLowerCase().trim()
-  let expectedOtp = activeOtpStore[target]
-  const userEnteredOtp = (data.otp || '').trim()
-
-  if (!expectedOtp) {
-    try {
-      const docId = target.replace(/[^a-zA-Z0-9]/g, '_')
-      const res = await fetch(`${FIRESTORE_OTPS_URL}/${docId}`)
-      if (res.ok) {
-        const json = await res.json()
-        expectedOtp = json.fields?.otp?.stringValue
-      }
-    } catch (e) { }
-  }
-
-  if (expectedOtp && userEnteredOtp === expectedOtp) {
-    delete activeOtpStore[target]
-    const isPhone = !target.includes('@')
-    return {
-      data: {
-        success: true,
-        message: isPhone
-          ? `✅ Phone Number (${target}) verified successfully!`
-          : `✅ Email (${target}) verified successfully!`
-      }
-    }
-  }
-
-  throw new Error(`Invalid OTP code! Please enter the exact 6-digit code sent to ${target}.`)
-}
-
-export const sendForgotPasswordOtp = async (data) => {
-  const target = (data.email || data.phone || '').toLowerCase().trim()
-  if (!target) throw new Error('Please enter your Email or Phone Number!')
-
-  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString()
-  activeOtpStore['reset_' + target] = generatedOtp
-
-  return {
-    data: {
-      success: true,
-      message: `🔑 Password Reset OTP sent to ${target}. Please check your device.`
-    }
-  }
-}
-
-export const verifyForgotPasswordOtp = async (data) => {
-  const target = (data.email || data.phone || '').toLowerCase().trim()
-  const expectedOtp = activeOtpStore['reset_' + target]
-  const userEnteredOtp = (data.otp || '').trim()
-
-  if (expectedOtp && userEnteredOtp === expectedOtp) {
-    delete activeOtpStore['reset_' + target]
-    return { data: { success: true, message: 'OTP verified successfully!' } }
-  }
-
-  throw new Error(`Invalid OTP code! Please check the 6-digit code.`)
-}
-
-export const resetPasswordWithOtp = async (data) => {
-  return { data: { success: true, message: 'Password reset successful! You can now log in.' } }
 }
 
 // ── User Profile & Blocking ────────────────────────────────────────────────

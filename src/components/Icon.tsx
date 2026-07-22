@@ -1,4 +1,4 @@
-import { TextStyle, Platform } from 'react-native'
+import { Text, TextStyle, Platform } from 'react-native'
 import { MaterialIcons } from '@expo/vector-icons'
 import { useEffect } from 'react'
 
@@ -58,7 +58,57 @@ const MAPPING: Record<string, string> = {
   group_add: 'group-add',
 }
 
-export default function Icon({ name, size = 22, color = '#ffffff', style }: IconProps) {
+const EMOJI_MAPPING: Record<string, string> = {
+  home: '🏠',
+  smart_display: '▶️',
+  camera_alt: '📷',
+  inbox: '📥',
+  bolt: '⚡',
+  notifications: '🔔',
+  chat: '💬',
+  public: '🌐',
+  chat_bubble_outline: '💬',
+  share: '🔗',
+  arrow_back: '←',
+  info: 'ℹ️',
+  more_vert: '⋮',
+  add: '➕',
+  send: '➤',
+  favorite: '❤️',
+  favorite_border: '🤍',
+  bookmark: '🔖',
+  bookmark_border: '🏷️',
+  autorenew: '🔄',
+  photo_camera: '📷',
+  no_photography: '🚫',
+  call: '📞',
+  image: '🖼️',
+  stop: '⏹️',
+  mic: '🎙️',
+  person: '👤',
+  video_call: '📹',
+  call_end: '🔴',
+  volume_up: '🔊',
+  phone_android: '📱',
+  description: '📄',
+  visibility: '👁️',
+  visibility_off: '🙈',
+  delete: '🗑️',
+  location_on: '📍',
+  mic_off: '🔇',
+  download: '📥',
+  lock: '🔐',
+  play_arrow: '▶️',
+  pause: '⏸️',
+  people: '👥',
+  videocam: '📹',
+  security: '🛡️',
+  group_add: '👥',
+  search: '🔍',
+  settings: '⚙️'
+}
+
+export default function Icon({ name, size = 22, color = '#ffffff', style, forceEmoji }: IconProps) {
   useEffect(() => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       if (!document.getElementById('material-icons-font-style')) {
@@ -84,6 +134,15 @@ export default function Icon({ name, size = 22, color = '#ffffff', style }: Icon
       }
     }
   }, [])
+
+  if (forceEmoji || (Platform.OS === 'web' && EMOJI_MAPPING[name])) {
+    const emoji = EMOJI_MAPPING[name] || '📌'
+    return (
+      <Text style={[{ fontSize: size * 0.85, textAlign: 'center', lineHeight: size + 2 }, style]}>
+        {emoji}
+      </Text>
+    )
+  }
 
   const iconName = MAPPING[name] || name
   return (
