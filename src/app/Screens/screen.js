@@ -757,7 +757,7 @@ export default function ChatScreen({
 
   const handleMsgLongPress = (msg) => {
     const rawContent = msg.text || msg.content || 'Message'
-    const cleanPreview = rawContent.replace(/^\[REPLY: ".*?"\]\s*/s, '')
+    const cleanPreview = rawContent.replace(/^\[REPLY: "[\s\S]*?"\]\s*/, '')
 
     Alert.alert(
       '💬 Message Options',
@@ -2145,7 +2145,7 @@ export default function ChatScreen({
                   }
 
                   if (rawText.startsWith('[REPLY: ')) {
-                    const replyMatch = rawText.match(/^\[REPLY: "(.*?)"\]\s*(.*)/s)
+                    const replyMatch = rawText.match(/^\[REPLY: "([\s\S]*?)"\]\s*([\s\S]*)/)
                     if (replyMatch) {
                       const quoteText = replyMatch[1]
                       const replyBody = replyMatch[2]
