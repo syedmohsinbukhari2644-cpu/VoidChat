@@ -348,52 +348,15 @@ export const loginUser = async (data) => {
     return matchesEmail || matchesUsername || matchesPhone
   })
 
-  // If user wasn't found in Firestore or local storage, create/login instant session
+  // If user wasn't found in Firestore or local storage, throw an error
   if (!user) {
-    const userId = 'user_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
-    user = {
-      _id: userId,
-      id: userId,
-      name: rawInput.split('@')[0],
-      username: rawInput.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || 'user',
-      email: rawInput.includes('@') ? rawInput : `${rawInput}@void.chat`,
-      phone: !rawInput.includes('@') ? rawInput : '',
-      password: inputPass,
-      avatar: (rawInput[0] || 'U').toUpperCase(),
-      voidBalance: 500,
-      isPremium: false,
-      createdAt: new Date().toISOString()
-    }
+    throw new Error('User not found! Please register first.')
+  }
 
-    // Save user locally & sync to cloud
-    const localUsers = await getStoredData('@void_users', DEFAULT_USERS)
-    localUsers.push(user)
-    await setStoredData('@void_users', localUsers)
-
-    // Sync to Cloud Firestore async in background (non-blocking)
-    try {
-      const fields = {
-        id: { stringValue: String(user.id) },
-        _id: { stringValue: String(user._id) },
-        name: { stringValue: String(user.name) },
-        username: { stringValue: String(user.username) },
-        email: { stringValue: String(user.email || '') },
-        password: { stringValue: String(user.password || '') },
-        voidBalance: { integerValue: String(500) },
-        createdAt: { stringValue: String(user.createdAt) }
-      }
-      fetch(`${FIRESTORE_USERS_URL}/${userId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields })
-      }).catch(() => {})
-    } catch (e) {}
-  } else {
-    // Validate password if present
-    const userPass = (user.password || '').trim()
-    if (userPass && inputPass && userPass !== inputPass) {
-      throw new Error('Invalid password! Please double check your password.')
-    }
+  // Validate password
+  const userPass = (user.password || '').trim()
+  if (userPass && inputPass && userPass !== inputPass) {
+    throw new Error('Invalid password! Please double check your password.')
   }
 
   const token = 'void_token_' + (user._id || user.id)
@@ -503,7 +466,7 @@ export const getUsers = async () => {
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 3500)
-    const res = await fetch(FIRESTORE_USERS_URL, { signal: controller.signal })
+    const res = await fetch(`${FIRESTORE_USERS_URL}?pageSize=10000`, { signal: controller.signal })
     clearTimeout(timeoutId)
 
     if (res.ok) {

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, SafeAreaView, StatusBar, Alert, Platform
+  TextInput, SafeAreaView, StatusBar, Alert, Platform,
+  KeyboardAvoidingView, ScrollView
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { loginUser, registerUser, setToken, sendOtp, verifyOtp } from './api'
@@ -125,7 +126,17 @@ export default function LoginScreen({ onLogin }) {
       <View style={styles.glowPurple} pointerEvents="none" />
       <View style={styles.glowGreen} pointerEvents="none" />
 
-      <View style={styles.content}>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
 
         {/* ── Logo Section ─────────────────────────────── */}
         <View style={styles.logoWrap}>
@@ -504,7 +515,9 @@ export default function LoginScreen({ onLogin }) {
           </Text>
         </View>
 
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   )
 }
@@ -512,7 +525,7 @@ export default function LoginScreen({ onLogin }) {
 // ─── Styles ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content: { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
+  content: { paddingHorizontal: 24, paddingVertical: 24 },
 
   // Background ambient glows
   glowPurple: {

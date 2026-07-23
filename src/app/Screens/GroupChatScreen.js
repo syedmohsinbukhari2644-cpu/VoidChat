@@ -761,7 +761,7 @@ const styles = StyleSheet.create({
   
   mediaLabel: { color: '#f9fafb', fontWeight: '600', fontSize: 12 },
   
-  inputArea: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#1a1a1a', padding: 12, paddingBottom: Platform.OS === 'android' ? 24 : 12 },
+  inputArea: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: '#1a1a1a', padding: 12, paddingBottom: Platform.OS === 'android' ? 24 : (Platform.OS === 'web' ? 'calc(12px + env(safe-area-inset-bottom))' : 12) },
   
   inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   

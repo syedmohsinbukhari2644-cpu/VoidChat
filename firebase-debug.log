@@ -1,0 +1,124 @@
+[debug] [2026-07-23T16:10:22.624Z] ----------------------------------------------------------------------
+[debug] [2026-07-23T16:10:22.631Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\acer\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only hosting --project azaad-app
+[debug] [2026-07-23T16:10:22.631Z] CLI Version:   15.21.0
+[debug] [2026-07-23T16:10:22.631Z] Platform:      win32
+[debug] [2026-07-23T16:10:22.632Z] Node Version:  v22.12.0
+[debug] [2026-07-23T16:10:22.633Z] Detected Agent: unknown
+[debug] [2026-07-23T16:10:22.633Z] Time:          Thu Jul 23 2026 21:10:22 GMT+0500 (Pakistan Standard Time)
+[debug] [2026-07-23T16:10:22.634Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-23T16:10:33.439Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-23T16:10:33.441Z] > authorizing via signed-in user (syedmohsinbukhari2644@gmail.com)
+[debug] [2026-07-23T16:10:33.441Z] [iam] checking project azaad-app for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2026-07-23T16:10:33.449Z] Checked if tokens are valid: false, expires at: 1784819057022
+[debug] [2026-07-23T16:10:33.450Z] Checked if tokens are valid: false, expires at: 1784819057022
+[debug] [2026-07-23T16:10:33.451Z] > refreshing access token with scopes: []
+[debug] [2026-07-23T16:10:33.461Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-07-23T16:10:33.462Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-07-23T16:10:34.090Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-07-23T16:10:34.091Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-07-23T16:10:34.121Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/azaad-app:testIamPermissions [none]
+[debug] [2026-07-23T16:10:34.121Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/azaad-app:testIamPermissions  x-goog-user-project=azaad-app
+[debug] [2026-07-23T16:10:34.121Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/azaad-app:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-07-23T16:10:35.979Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/azaad-app:testIamPermissions 200
+[debug] [2026-07-23T16:10:35.980Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/azaad-app:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-07-23T16:10:35.982Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:35.983Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:35.984Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/azaad-app [none]
+[debug] [2026-07-23T16:10:36.925Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/azaad-app 200
+[debug] [2026-07-23T16:10:36.925Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/azaad-app {"projectId":"azaad-app","projectNumber":"1050250069606","displayName":"VOID CHAT","name":"projects/azaad-app","resources":{"hostingSite":"azaad-app"},"state":"ACTIVE","labels":{"firebase":"enabled"},"etag":"1_f5cbc240-d019-40d4-803b-75d8c25d30b8"}
+[info] 
+[info] === Deploying to 'azaad-app'...
+[info] 
+[info] i  deploying hosting 
+[debug] [2026-07-23T16:10:36.937Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:36.937Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:36.938Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/azaad-app/sites/azaad-app [none]
+[debug] [2026-07-23T16:10:38.961Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/azaad-app/sites/azaad-app 200
+[debug] [2026-07-23T16:10:38.961Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/azaad-app/sites/azaad-app {"name":"projects/azaad-app/sites/azaad-app","defaultUrl":"https://azaad-app.web.app","type":"DEFAULT_SITE"}
+[debug] [2026-07-23T16:10:38.973Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:38.973Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:38.974Z] >>> [apiv2][query] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions [none]
+[debug] [2026-07-23T16:10:38.974Z] >>> [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions {"status":"CREATED","labels":{"deployment-tool":"cli-firebase"}}
+[debug] [2026-07-23T16:10:40.825Z] <<< [apiv2][status] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions 200
+[debug] [2026-07-23T16:10:40.826Z] <<< [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions {"name":"projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205","status":"CREATED","config":{},"labels":{"deployment-tool":"cli-firebase"}}
+[info] i  hosting[azaad-app]: beginning deploy... 
+[info] i  hosting[azaad-app]: found 25 files in dist 
+[debug] [2026-07-23T16:10:40.934Z] [hosting] uploading with 200 concurrency
+[debug] [2026-07-23T16:10:40.952Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:40.952Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:40.957Z] [hosting] hash cache [ZGlzdA] stored for 25 files
+[debug] [2026-07-23T16:10:40.957Z] [hosting][hash queue][FINAL] {"max":5,"min":1,"avg":1,"active":0,"complete":25,"success":25,"errored":0,"retried":0,"total":25,"elapsed":13}
+[debug] [2026-07-23T16:10:40.959Z] >>> [apiv2][query] POST https://firebasehosting.googleapis.com/v1beta1/projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205:populateFiles [none]
+[debug] [2026-07-23T16:10:40.959Z] >>> [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205:populateFiles {"files":{"/_sitemap.html":"ed2c8a4b86ed2889293cabd42bc224a7a40ebf991ae46a522ad9517927fabcbd","/track.html":"a00aeda6a3ae98fa0a51a6fbedfb97e8d960e2c140486e7118de79d38c2aaac4","/login.html":"50eadd99242baa3e2ae0151044d4d3a7c519179b1fe8510bd235fdffb9031b82","/index.html":"8703800e9759647eefe8abe6e55d1f2ed53233728fc8478f3f25e87c535c8dfc","/explore.html":"549f9d781ace87c3c1a826d4ed5b1940188424b930982baec68cf70a59c45eba","/create.html":"b75192451ebf45389a2d807692a5e6f2925d1e22e34d1afac007d473c24e8121","/api.html":"83aa8f5db77d4ffab3871027b64ac0ba3a7367494763ac9a99c56e174df9fd76","/+not-found.html":"ed2c8a4b86ed2889293cabd42bc224a7a40ebf991ae46a522ad9517927fabcbd","/_expo/static/js/web/entry-4ca763614dc4203b7c4af3f87b1d7634.js":"e05f8251aa19a251f2610933875487a7ee0ef9d55fd05a482f149fb81aa5d85c","/_expo/static/css/global-87fd0564cfa78f37afcb8d7603e15d75.css":"456cbd79e91962639fbbb15c37a757c372a6fbffa34a4581f9ce42b6e8bc6ef3","/Screens/screen.html":"630d7ea3ceb3a37639645fbac617989a29bce8a89218433083c413380bacdd67","/Screens/ReferScreen.html":"5713a466a7894094183df3622c0b2b07227e079c0398c6b693d7ba7eca2e3344","/Screens/ReelsScreen.html":"ae2857855a4e666bc26b2fc172e389ba7cf1f19c81c5902f14e224e0f8085c4c","/Screens/NotificationsScreen.html":"f6e0c8523bec06b2c55af6c466a4cdea50992dea295262d7c917f5dd96af1bbf","/Screens/GroupListScreen.html":"cf8ead9b6e9287566eb6a372dc03b66c4add1501dc75bacfe4391ec7703775b7","/Screens/GroupChatScreen.html":"338740f397a3c01c0362612d26875f6a16b023a01bfbd9974d304af509856152","/assets/assets/images/tutorial-web.c62d22797f3002396754d8cc55b0ae1a.png":"d65656bd7ffd72f7d177f108d5f3e0d539e9b61d1002f46347739008233ff16f","/assets/assets/images/react-logo.d883906de993aa65bf0ef0d1bc2ff6ad@3x.png":"c1b41ca1fbd06a4eefdf434fd9d26dc4b27e5ffc4c450d73427fa8f483bbc05e","/assets/assets/images/react-logo.d883906de993aa65bf0ef0d1bc2ff6ad@2x.png":"59ede89b5b261d108e9b72d0d130597d790261856b570079babe1dfe884325c6","/assets/assets/images/react-logo.d883906de993aa65bf0ef0d1bc2ff6ad.png":"67d69597227eda7c73429562940be8c943322340933da824566b418b04477fc8","/assets/assets/images/expo-badge.6b0da8ec880685d1bd053c0f5ea9d09d.png":"02ab3145a22b2e82992c1644e74c629fea9873770a9378ab176b5438114e67c3","/assets/assets/images/expo-badge-white.02efb8472f161bcf8afc8c8489a28fca.png":"a944d8bad668dd50d2da0e73b83cc36abfb8ac3f496c04788ab45faf65334a29","/antitheft/IntruderCamera.html":"dc4507027458fbff7d4659511ef6498fa8305d539012ce4ccc5362fa0d27b493","/antitheft/FakeShutdownOverlay.html":"241e437c42f69a527644b9db303ceed71552d1da0a72ae8fef69b4ec6f02056c","/antitheft/AntiTheftService.html":"dc4507027458fbff7d4659511ef6498fa8305d539012ce4ccc5362fa0d27b493"}}
+[debug] [2026-07-23T16:10:42.507Z] <<< [apiv2][status] POST https://firebasehosting.googleapis.com/v1beta1/projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205:populateFiles 200
+[debug] [2026-07-23T16:10:42.511Z] <<< [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205:populateFiles {"uploadUrl":"https://upload-firebasehosting.googleapis.com/upload/sites/azaad-app/versions/0ee71b1134918205/files"}
+[debug] [2026-07-23T16:10:42.515Z] [hosting][populate queue][FINAL] {"max":1564,"min":1564,"avg":1564,"active":0,"complete":1,"success":1,"errored":0,"retried":0,"total":1,"elapsed":1565}
+[debug] [2026-07-23T16:10:42.516Z] [hosting] uploads queued: 0
+[debug] [2026-07-23T16:10:42.520Z] [hosting][upload queue][FINAL] {"max":0,"min":9999999999,"avg":0,"active":0,"complete":0,"success":0,"errored":0,"retried":0,"total":0,"elapsed":1784823042520}
+[info] +  hosting[azaad-app]: file upload complete 
+[debug] [2026-07-23T16:10:42.532Z] [hosting] deploy completed after 1699ms
+[debug] [2026-07-23T16:10:42.535Z] [
+  {
+    "config": {
+      "public": "dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache, no-store, must-revalidate"
+            }
+          ]
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/track.html",
+          "destination": "/track.html"
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "site": "azaad-app"
+    },
+    "version": "projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205"
+  }
+]
+[info] i  hosting[azaad-app]: finalizing version... 
+[debug] [2026-07-23T16:10:42.556Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:42.557Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:42.558Z] >>> [apiv2][query] PATCH https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions/0ee71b1134918205 updateMask=status%2Cconfig
+[debug] [2026-07-23T16:10:42.558Z] >>> [apiv2][body] PATCH https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions/0ee71b1134918205 {"status":"FINALIZED","config":{"rewrites":[{"glob":"/track.html","path":"/track.html"},{"glob":"**","path":"/index.html"}],"headers":[{"glob":"**","headers":{"Cache-Control":"no-cache, no-store, must-revalidate"}}]}}
+[debug] [2026-07-23T16:10:44.137Z] <<< [apiv2][status] PATCH https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions/0ee71b1134918205 200
+[debug] [2026-07-23T16:10:44.137Z] <<< [apiv2][body] PATCH https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/versions/0ee71b1134918205 {"name":"projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205","status":"FINALIZED","config":{"headers":[{"headers":{"Cache-Control":"no-cache, no-store, must-revalidate"},"glob":"**"}],"rewrites":[{"glob":"/track.html","path":"/track.html"},{"glob":"**","path":"/index.html"}]},"labels":{"deployment-tool":"cli-firebase"},"createTime":"2026-07-23T16:10:39.415241Z","createUser":{"email":"syedmohsinbukhari2644@gmail.com"},"finalizeTime":"2026-07-23T16:10:43.831960Z","finalizeUser":{"email":"syedmohsinbukhari2644@gmail.com"}}
+[debug] [2026-07-23T16:10:44.137Z] [hosting] finalized version for azaad-app:[object Object]
+[info] +  hosting[azaad-app]: version finalized 
+[info] i  hosting[azaad-app]: releasing new version... 
+[debug] [2026-07-23T16:10:44.139Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:44.140Z] Checked if tokens are valid: true, expires at: 1784826633091
+[debug] [2026-07-23T16:10:44.140Z] >>> [apiv2][query] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/channels/live/releases versionName=projects%2F1050250069606%2Fsites%2Fazaad-app%2Fversions%2F0ee71b1134918205
+[debug] [2026-07-23T16:10:44.140Z] >>> [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/channels/live/releases {}
+[debug] [2026-07-23T16:10:46.447Z] <<< [apiv2][status] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/channels/live/releases 200
+[debug] [2026-07-23T16:10:46.447Z] <<< [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/azaad-app/channels/live/releases {"name":"projects/1050250069606/sites/azaad-app/channels/live/releases/1784823044868000","version":{"name":"projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205","status":"FINALIZED","config":{"headers":[{"headers":{"Cache-Control":"no-cache, no-store, must-revalidate"},"glob":"**"}],"rewrites":[{"glob":"/track.html","path":"/track.html"},{"glob":"**","path":"/index.html"}]},"labels":{"deployment-tool":"cli-firebase"},"createTime":"2026-07-23T16:10:39.415241Z","createUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"},"finalizeTime":"2026-07-23T16:10:43.831960Z","finalizeUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"}},"type":"DEPLOY","releaseTime":"2026-07-23T16:10:44.868Z","releaseUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"}}
+[debug] [2026-07-23T16:10:46.447Z] [hosting] release: {"name":"projects/1050250069606/sites/azaad-app/channels/live/releases/1784823044868000","version":{"name":"projects/1050250069606/sites/azaad-app/versions/0ee71b1134918205","status":"FINALIZED","config":{"headers":[{"headers":{"Cache-Control":"no-cache, no-store, must-revalidate"},"glob":"**"}],"rewrites":[{"glob":"/track.html","path":"/track.html"},{"glob":"**","path":"/index.html"}]},"labels":{"deployment-tool":"cli-firebase"},"createTime":"2026-07-23T16:10:39.415241Z","createUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"},"finalizeTime":"2026-07-23T16:10:43.831960Z","finalizeUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"}},"type":"DEPLOY","releaseTime":"2026-07-23T16:10:44.868Z","releaseUser":{"email":"syedmohsinbukhari2644@gmail.com","imageUrl":"https://lh3.googleusercontent.com/a/ACg8ocKNKm7E-XhAHORbOYPBZ41akFI0iWt2VeX3rNEKiEgOtQzm_w=mo"}}
+[info] +  hosting[azaad-app]: release complete 
+[info] 
+[info] +  Deploy complete! 
+[info] 
+[info] Project Console: https://console.firebase.google.com/project/azaad-app/overview
+[info] Hosting URL: https://azaad-app.web.app
+[debug] [2026-07-23T16:10:51.675Z] Error: Timed out.
+    at Timeout._onTimeout (C:\Users\acer\AppData\Roaming\npm\node_modules\firebase-tools\lib\utils.js:313:49)
+    at listOnTimeout (node:internal/timers:594:17)
+    at process.processTimers (node:internal/timers:529:7)
+[error] 
+[error] Error: An unexpected error has occurred.

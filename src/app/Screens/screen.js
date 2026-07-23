@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image, Linking
+  TextInput, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Alert, Modal, StatusBar, Image, Linking, BackHandler
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -145,6 +145,78 @@ export default function ChatScreen({
     })
   }
   const [loadingMessages, setLoadingMessages] = useState(false)
+
+  // ── Moved All State & Ref Declarations to Top to prevent TDZ errors ──
+  const [input, setInput] = useState('')
+  const [streak, setStreak] = useState(47)
+  const [screenshotAllowed, setScreenshotAllowed] = useState(true)
+  const scrollViewRef = useRef(null)
+  const [isContactSaved, setIsContactSaved] = useState(true)
+  const [showImageEditTools, setShowImageEditTools] = useState(false)
+  const [selectedImageFilter, setSelectedImageFilter] = useState('normal')
+  const [imageCaption, setImageCaption] = useState('')
+  const [replyingToMsg, setReplyingToMsg] = useState(null)
+
+  const [showVCMenu, setShowVCMenu] = useState(false)
+  const [showMediaMenu, setShowMediaMenu] = useState(false)
+  const [onCall, setOnCall] = useState(false)
+  const [callType, setCallType] = useState(null)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isSpeaker, setIsSpeaker] = useState(false)
+  const [callDuration, setCallDuration] = useState(0)
+
+  // ── New Chat Settings states ──
+  const [showChatMenuModal, setShowChatMenuModal] = useState(false)
+  const [disappearingMode, setDisappearingMode] = useState('off') // off, 24h, 7d, 30d
+  const [isChatMuted, setIsChatMuted] = useState(false)
+  const [localChatTheme, setLocalChatTheme] = useState('classic_dark')
+  const [searchMessageText, setSearchMessageText] = useState('')
+  const [showSearchBox, setShowSearchBox] = useState(false)
+  const [showMediaDetails, setShowMediaDetails] = useState(false)
+
+  // ── WebRTC Real Call State ────────────────────────────────────
+  const [localStream, setLocalStream] = useState(null)
+  const [remoteStream, setRemoteStream] = useState(null)
+  const [incomingCall, setIncomingCall] = useState(null) // { from, fromName, offer, callType }
+  const [callStatus, setCallStatus] = useState('idle') // idle | calling | ringing | connected | ended
+  const callingTimeoutRef = useRef(null)
+
+  // Permission System
+  const [otherUserPermissions, setOtherUserPermissions] = useState({
+    canScreenshot: false,
+    canForward: false,
+    canShareContact: false
+  })
+  const [pendingPermissionRequest, setPendingPermissionRequest] = useState(null)
+  const [selectedMessage, setSelectedMessage] = useState(null)
+
+  // Camera Filters System
+  const [selectedFilter, setSelectedFilter] = useState('normal')
+  const [showFilterMenu, setShowFilterMenu] = useState(false)
+  
+  // Camera Roll & Drafts System
+  const [cameraRoll, setCameraRoll] = useState([
+    { id: 1, type: 'photo', filter: 'normal', timestamp: '2 hrs ago', emoji: '📷' },
+    { id: 2, type: 'photo', filter: 'sepia', timestamp: '5 hrs ago', emoji: '🟤' },
+    { id: 3, type: 'video', filter: 'cool', timestamp: '1 day ago', emoji: '❄️' },
+  ])
+  const [showCameraRoll, setShowCameraRoll] = useState(false)
+  const [selectedDraft, setSelectedDraft] = useState(null)
+  const [showDraftPreview, setShowDraftPreview] = useState(false)
+  const [previewImageUri, setPreviewImageUri] = useState(null)
+  const [viewerImageUri, setViewerImageUri] = useState(null)
+
+  // ── Voice Recording State ─────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [audioURL, setAudioURL] = useState(null)
+  const [playingMsgId, setPlayingMsgId] = useState(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
+  const audioRefs = useRef({})
+  const recordingRef = useRef(null)
+  const soundObjectRef = useRef(null)
 
   const fetchMessages = async () => {
     const targetId = contact?._id || contact?.id || contact?.userId
@@ -292,15 +364,7 @@ export default function ChatScreen({
     }
   }, [contact?._id, contact?.id, contact?.userId])
 
-  const [input, setInput] = useState('')
-  const [streak, setStreak] = useState(47)
-  const [screenshotAllowed, setScreenshotAllowed] = useState(true)
-  const scrollViewRef = useRef(null)
-  const [isContactSaved, setIsContactSaved] = useState(true)
-  const [showImageEditTools, setShowImageEditTools] = useState(false)
-  const [selectedImageFilter, setSelectedImageFilter] = useState('normal')
-  const [imageCaption, setImageCaption] = useState('')
-  const [replyingToMsg, setReplyingToMsg] = useState(null)
+
 
   useEffect(() => {
     const checkSavedStatus = async () => {
@@ -418,70 +482,13 @@ export default function ChatScreen({
       }
     }
   }, [screenshotAllowed])
-  const [showVCMenu, setShowVCMenu] = useState(false)
-  const [showMediaMenu, setShowMediaMenu] = useState(false)
-  const [onCall, setOnCall] = useState(false)
-  const [callType, setCallType] = useState(null)
-  const [isMuted, setIsMuted] = useState(false)
-  const [isSpeaker, setIsSpeaker] = useState(false)
-  const [callDuration, setCallDuration] = useState(0)
 
-  // ── New Chat Settings states ──
-  const [showChatMenuModal, setShowChatMenuModal] = useState(false)
-  const [disappearingMode, setDisappearingMode] = useState('off') // off, 24h, 7d, 30d
-  const [isChatMuted, setIsChatMuted] = useState(false)
-  const [localChatTheme, setLocalChatTheme] = useState('classic_dark')
-  const [searchMessageText, setSearchMessageText] = useState('')
-  const [showSearchBox, setShowSearchBox] = useState(false)
-  const [showMediaDetails, setShowMediaDetails] = useState(false)
-
-  // ── WebRTC Real Call State ────────────────────────────────────
-  const [localStream, setLocalStream] = useState(null)
-  const [remoteStream, setRemoteStream] = useState(null)
-  const [incomingCall, setIncomingCall] = useState(null) // { from, fromName, offer, callType }
-  const [callStatus, setCallStatus] = useState('idle') // idle | calling | ringing | connected | ended
-  const callingTimeoutRef = useRef(null)
 
   useEffect(() => {
     onCallStateChange?.(onCall)
   }, [onCall, onCallStateChange])
   
-  // Permission System
-  const [otherUserPermissions, setOtherUserPermissions] = useState({
-    canScreenshot: false,
-    canForward: false,
-    canShareContact: false
-  })
-  const [pendingPermissionRequest, setPendingPermissionRequest] = useState(null)
-  const [selectedMessage, setSelectedMessage] = useState(null)
 
-  // Camera Filters System
-  const [selectedFilter, setSelectedFilter] = useState('normal')
-  const [showFilterMenu, setShowFilterMenu] = useState(false)
-  
-  // Camera Roll & Drafts System
-  const [cameraRoll, setCameraRoll] = useState([
-    { id: 1, type: 'photo', filter: 'normal', timestamp: '2 hrs ago', emoji: '📷' },
-    { id: 2, type: 'photo', filter: 'sepia', timestamp: '5 hrs ago', emoji: '🟤' },
-    { id: 3, type: 'video', filter: 'cool', timestamp: '1 day ago', emoji: '❄️' },
-  ])
-  const [showCameraRoll, setShowCameraRoll] = useState(false)
-  const [selectedDraft, setSelectedDraft] = useState(null)
-  const [showDraftPreview, setShowDraftPreview] = useState(false)
-  const [previewImageUri, setPreviewImageUri] = useState(null)
-  const [viewerImageUri, setViewerImageUri] = useState(null)
-
-  // ── Voice Recording State ─────────────────────────────────────
-  const [isRecording, setIsRecording] = useState(false)
-  const [recordingDuration, setRecordingDuration] = useState(0)
-  const [audioURL, setAudioURL] = useState(null)
-  const [playingMsgId, setPlayingMsgId] = useState(null)
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
-  const recordingTimerRef = useRef(null)
-  const audioRefs = useRef({})
-  const recordingRef = useRef(null)
-  const soundObjectRef = useRef(null)
 
   
   const cameraFilters = [
@@ -3488,7 +3495,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',
     backgroundColor: '#0a0a0a',
-    paddingBottom: Platform.OS === 'android' ? 24 : 10,
+    paddingBottom: Platform.OS === 'android' ? 24 : (Platform.OS === 'web' ? 'calc(10px + env(safe-area-inset-bottom))' : 10),
   },
   blockedBannerContainer: {
     padding: 20,

@@ -763,6 +763,11 @@ export default function App() {
         if (cachedUsers) {
           setUsers(JSON.parse(cachedUsers))
         }
+
+        const cachedChatChats = await AsyncStorage.getItem('cached_chat_mode_chats')
+        if (cachedChatChats) {
+          setChatModeChats(JSON.parse(cachedChatChats))
+        }
       } catch (e) {}
     }
 
@@ -1329,6 +1334,7 @@ export default function App() {
       }))
 
     setChatModeChats(mappedChats)
+    AsyncStorage.setItem('cached_chat_mode_chats', JSON.stringify(mappedChats)).catch(() => {})
 
     // 2. Social Mode Group & Community Chats ONLY (Strictly Separate from Personal Chat Section!)
     const groupChats = [
@@ -1885,16 +1891,19 @@ export default function App() {
 
       const matched = []
 
-      // On Web: Match all registered phone users directly
+      // Load manually saved contacts list
+      const savedStr = await AsyncStorage.getItem('saved_user_contacts')
+      const savedList = savedStr ? JSON.parse(savedStr) : []
+
       if (Platform.OS === 'web') {
+        // On Web: Only match users whose IDs are explicitly saved in saved_user_contacts
         currentUsers.forEach(u => {
-          const ph = u.phone || u.phoneNumber || u.email || u.username || ''
-          const cleanPh = ph.replace(/\D/g, '')
-          if (cleanPh.length >= 7) {
+          const uid = String(u._id || u.id)
+          if (savedList.includes(uid)) {
             matched.push({
-              deviceName: u.name || u.username || 'Phone User',
+              deviceName: u.name || u.username || 'Saved Contact',
               user: u,
-              matchedNumber: ph
+              matchedNumber: u.phone || u.phoneNumber || u.email || u.username
             })
           }
         })
@@ -1934,23 +1943,20 @@ export default function App() {
           }
         } catch (e) {}
 
-        // Fallback: If no device permissions or 0 matches found on phone, display all registered phone users
-        if (matched.length === 0) {
-          currentUsers.forEach(u => {
-            const ph = u.phone || u.phoneNumber || u.email || u.username || ''
-            const cleanPh = ph.replace(/\D/g, '')
-            if (cleanPh.length >= 7) {
-              matched.push({
-                deviceName: u.name || u.username || 'Registered User',
-                user: u,
-                matchedNumber: ph
-              })
-            }
-          })
-        }
+        // Add manually saved contacts on native too if not already matched
+        currentUsers.forEach(u => {
+          const uid = String(u._id || u.id)
+          if (savedList.includes(uid) && !matched.some(m => String(m.user._id || m.user.id) === uid)) {
+            matched.push({
+              deviceName: u.name || u.username || 'Saved Contact',
+              user: u,
+              matchedNumber: u.phone || u.phoneNumber || u.email || u.username
+            })
+          }
+        })
       }
 
-      // Automatically add all matched users to active Inbox chats
+      // Automatically add all matched/saved users to active Inbox chats
       matched.forEach(item => {
         const u = item.user
         const newChatObj = {
@@ -1980,10 +1986,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (activeTab === 'contacts') {
+    if (activeTab === 'contacts' || !showChat) {
       handleSyncContacts(true)
     }
-  }, [activeTab])
+  }, [activeTab, showChat])
 
   const isPostOwner = (post) => {
     if (!currentUser || !post) return false
@@ -2889,10 +2895,10 @@ export default function App() {
           <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
             <View style={{ padding: 12, gap: 10 }}>
               <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 6, marginLeft: 4 }}>
-                REGISTERED CONTACTS ({users.length})
+                SAVED/SYNCED CONTACTS ({matchedContacts.length})
               </Text>
 
-              {users.length === 0 ? (
+              {matchedContacts.length === 0 ? (
                 <View style={{ padding: 30, alignItems: 'center' }}>
                   <Icon name="contacts" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
                   <Text style={{ color: theme.subText, fontSize: 13, textAlign: 'center' }}>
@@ -2900,61 +2906,65 @@ export default function App() {
                   </Text>
                 </View>
               ) : (
-                users.filter(u => {
+                matchedContacts.filter(item => {
+                  const u = item.user
                   const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
                   if (isSelf) return false
                   if (inboxSearchQuery.trim()) {
-                    return (u.username || u.name || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())
+                    return (item.deviceName || u.name || u.username || '').toLowerCase().includes(inboxSearchQuery.toLowerCase())
                   }
                   return true
-                }).map(u => (
-                  <TouchableOpacity
-                    key={u._id || u.id}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      padding: 12,
-                      backgroundColor: theme.cardBg,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      gap: 12
-                    }}
-                    onPress={async () => {
-                      await handleSelectUserToChat(u)
-                      const newChatObj = {
-                        id: u._id || u.id,
-                        name: u.name || u.username,
-                        username: u.username,
-                        phoneNumber: u.phone || u.phoneNumber || u.email || u.username,
-                        color: '#c8ff00',
-                        avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
-                        streak: 0,
-                        unread: 0
-                      }
-                      setShowChat(newChatObj)
-                      setActiveTab('inbox')
-                    }}
-                  >
-                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
-                      <UserAvatar
-                        avatar={u.avatar}
-                        size={44}
-                        textStyle={{ color: '#000', fontSize: 16, fontWeight: '900' }}
-                        fallback={(u.username || u.name || 'U')[0].toUpperCase()}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>@{u.username || u.name}</Text>
-                      <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
-                        {u.phone || u.phoneNumber || u.email || 'Registered Contact'}
-                      </Text>
-                    </View>
-                    <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
-                      <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>💬 Chat</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))
+                }).map(item => {
+                  const u = item.user
+                  return (
+                    <TouchableOpacity
+                      key={u._id || u.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        padding: 12,
+                        backgroundColor: theme.cardBg,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        gap: 12
+                      }}
+                      onPress={async () => {
+                        await handleSelectUserToChat(u)
+                        const newChatObj = {
+                          id: u._id || u.id,
+                          name: item.deviceName || u.name || u.username,
+                          username: u.username,
+                          phoneNumber: item.matchedNumber || u.phone || u.phoneNumber || u.email || u.username,
+                          color: '#c8ff00',
+                          avatar: u.avatar || (u.username || u.name || 'U')[0].toUpperCase(),
+                          streak: 0,
+                          unread: 0
+                        }
+                        setShowChat(newChatObj)
+                        setActiveTab('inbox')
+                      }}
+                    >
+                      <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+                        <UserAvatar
+                          avatar={u.avatar}
+                          size={44}
+                          textStyle={{ color: '#000', fontSize: 16, fontWeight: '900' }}
+                          fallback={(u.username || u.name || 'U')[0].toUpperCase()}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>@{u.username || u.name}</Text>
+                        <Text style={{ color: theme.subText, fontSize: 11, marginTop: 1 }}>
+                          {item.deviceName || 'Registered Contact'}
+                        </Text>
+                      </View>
+                      <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
+                        <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>💬 Chat</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })
               )}
             </View>
           </ScrollView>
@@ -3594,6 +3604,11 @@ export default function App() {
           {/* Mobile Bottom Nav */}
           <View style={[
             styles.bottomNav,
+            Platform.OS === 'web' ? {
+              bottom: 'calc(10px + env(safe-area-inset-bottom))',
+            } : {
+              bottom: Math.max(insets.bottom || 0, 10),
+            },
             appMode === 'social' ? {
               width: '92%',
               maxWidth: 390,
@@ -4132,7 +4147,12 @@ export default function App() {
             {/* Friends list scrollable */}
             <ScrollView style={{ flex: 1 }}>
               {[
-                ...users.map(u => ({ id: u._id, name: `@${u.username}`, isReal: true, streak: u.streakDays || 0 })),
+                ...matchedContacts.map(item => ({
+                  id: item.user._id || item.user.id,
+                  name: `@${item.user.username}`,
+                  isReal: true,
+                  streak: item.user.streakDays || 0
+                })),
                 { id: '3', name: 'Anonymous_42', isReal: false, streak: 23 },
                 { id: '4', name: 'Ali Bhai', isReal: false, streak: 8 }
               ]
@@ -8071,20 +8091,20 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: '100%',
     height: '100%',
-    minHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    minHeight: Platform.OS === 'web' ? '100dvh' : '100%',
   },
   splitLayoutContainer: {
     flex: 1,
     flexDirection: 'row',
     backgroundColor: '#060608',
-    height: Platform.OS === 'web' ? '100vh' : '100%',
-    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    height: Platform.OS === 'web' ? '100dvh' : '100%',
+    maxHeight: Platform.OS === 'web' ? '100dvh' : '100%',
     overflow: 'hidden',
   },
   sidebarContainer: {
     width: 320,
     height: '100%',
-    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    maxHeight: Platform.OS === 'web' ? '100dvh' : '100%',
     flexDirection: 'column',
     borderRightWidth: 1,
     borderRightColor: '#1a1a24',
@@ -8094,7 +8114,7 @@ const styles = StyleSheet.create({
   mainContentContainer: {
     flex: 1,
     height: '100%',
-    maxHeight: Platform.OS === 'web' ? '100vh' : '100%',
+    maxHeight: Platform.OS === 'web' ? '100dvh' : '100%',
     flexDirection: 'column',
     backgroundColor: '#060608',
   },
