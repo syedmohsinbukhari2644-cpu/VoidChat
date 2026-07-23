@@ -360,7 +360,7 @@ export default function App() {
       settings: 'Settings',
       feed: 'Feed',
       reels: 'Reels',
-      inbox: 'Inbox',
+      inbox: 'Chats',
       refer: 'Refer & Earn',
       profile: 'Profile',
       vault: 'Secret Vault',
@@ -385,7 +385,7 @@ export default function App() {
       settings: 'سیٹنگز',
       feed: 'فیڈ',
       reels: 'ریلز',
-      inbox: 'ان باکس',
+      inbox: 'چیٹس',
       refer: 'ریفر اور کمائیں',
       profile: 'پروفائل',
       vault: 'خفیہ والٹ',
@@ -410,7 +410,7 @@ export default function App() {
       settings: 'सेटिंग्स',
       feed: 'फ़ीड',
       reels: 'रील्स',
-      inbox: 'इनबॉक्स',
+      inbox: 'चैट्स',
       refer: 'रेफ़र और कमाएँ',
       profile: 'प्रोफ़ाइल',
       vault: 'गुप्त वॉल्ट',
@@ -422,9 +422,9 @@ export default function App() {
       premium: 'वॉइड प्रीमियम',
       account: 'खाता',
       chatSetting: 'चैट सेटिंग्स',
-      privacySecurity: 'गोपनीयता और सुरक्षा',
+      privacySecurity: 'गोपनीयता & सुरक्षा',
       notifications: 'नोटिफिकेशन्स',
-      dataStorage: 'डेटा और स्टोरेज',
+      dataStorage: 'डेटा & स्टोरेज',
       voidCoins: 'वॉइड कॉइन्स',
       vaultDescription: 'व्यक्तिगत चैट के लिए सुरक्षित फ़ोल्डर',
       logout: 'लॉग आउट',
@@ -435,7 +435,7 @@ export default function App() {
       settings: 'Ajustes',
       feed: 'Novedades',
       reels: 'Reels',
-      inbox: 'Bandeja',
+      inbox: 'Chats',
       refer: 'Recomendar',
       profile: 'Perfil',
       vault: 'Bóveda Secreta',
@@ -460,7 +460,7 @@ export default function App() {
       settings: 'الإعدادات',
       feed: 'المنشورات',
       reels: 'المقاطع',
-      inbox: 'الرسائل',
+      inbox: 'الدردشات',
       refer: 'شارك واربح',
       profile: 'الملف الشخصي',
       vault: 'القبو السري',
@@ -485,7 +485,7 @@ export default function App() {
       settings: 'Paramètres',
       feed: 'Flux',
       reels: 'Reels',
-      inbox: 'Boîte',
+      inbox: 'Chats',
       refer: 'Parrainer',
       profile: 'Profil',
       vault: 'Coffre Secret',
@@ -510,7 +510,7 @@ export default function App() {
       settings: 'Einstellungen',
       feed: 'Feed',
       reels: 'Reels',
-      inbox: 'Postfach',
+      inbox: 'Chats',
       refer: 'Werben & Verdienen',
       profile: 'Profil',
       vault: 'Tresor',
@@ -535,7 +535,7 @@ export default function App() {
       settings: 'Настройки',
       feed: 'Лента',
       reels: 'Рилс',
-      inbox: 'Входящие',
+      inbox: 'Чаты',
       refer: 'Рефералы',
       profile: 'Профиль',
       vault: 'Секретный сейф',
@@ -560,7 +560,7 @@ export default function App() {
       settings: '设置',
       feed: '动态',
       reels: '视频',
-      inbox: '收件箱',
+      inbox: '聊天',
       refer: '推荐有礼',
       profile: '个人资料',
       vault: '加密金库',
@@ -585,7 +585,7 @@ export default function App() {
       settings: '設定',
       feed: 'フィード',
       reels: 'リール',
-      inbox: '受信トレイ',
+      inbox: 'チャット',
       refer: '紹介コード',
       profile: 'プロフィール',
       vault: '秘密の金庫',
@@ -725,13 +725,56 @@ export default function App() {
   }, [showChat, selectedChatContact, users])
 
   useEffect(() => {
+    const loadCachedData = async () => {
+      try {
+        const cachedUser = await AsyncStorage.getItem('cached_current_user')
+        if (cachedUser) {
+          const parsedUser = JSON.parse(cachedUser)
+          setCurrentUser(parsedUser)
+          setIsPremiumUser(!!parsedUser.isPremium)
+          setSavedPostIds(parsedUser.savedPosts || [])
+          
+          if (parsedUser.username) {
+            setChatUsername(parsedUser.username)
+            setSocialUsername(parsedUser.username)
+          }
+          if (parsedUser.avatar) {
+            setChatAvatar(parsedUser.avatar)
+            setSocialAvatar(parsedUser.avatar)
+          }
+          if (parsedUser.bio) {
+            setChatBio(parsedUser.bio)
+            setSocialBio(parsedUser.bio)
+          }
+          if (parsedUser.name) {
+            const parts = parsedUser.name.split(' ')
+            setFirstName(parts[0] || '')
+            setLastName(parts.slice(1).join(' ') || '')
+          }
+          if (parsedUser.lockedChats) {
+            setSecretChatIds(parsedUser.lockedChats)
+          }
+          if (parsedUser.secretFolderPin) {
+            setSecretFolderPin(parsedUser.secretFolderPin)
+          }
+        }
+        
+        const cachedUsers = await AsyncStorage.getItem('cached_users')
+        if (cachedUsers) {
+          setUsers(JSON.parse(cachedUsers))
+        }
+      } catch (e) {}
+    }
+
     if (isLoggedIn) {
-      loadFeed()
-      loadBalance()
-      claimDailyBonus()
-      loadReferCode()
-      loadBlockedUsers()
-      loadUsers()
+      loadCachedData().then(() => {
+        loadFeed()
+        loadBalance()
+        claimDailyBonus()
+        loadReferCode()
+        loadBlockedUsers()
+        loadUsers()
+      })
     }
   }, [isLoggedIn])
 
@@ -1476,20 +1519,24 @@ export default function App() {
   const loadUsers = async () => {
     try {
       const res = await getUsers()
-      setUsers(res.data.users || [])
+      const fetchedUsers = res.data.users || []
+      setUsers(fetchedUsers)
+      await AsyncStorage.setItem('cached_users', JSON.stringify(fetchedUsers))
     } catch (e) {}
   }
 
   const loadBlockedUsers = async () => {
     try {
       const res = await getMe()
-      setCurrentUserBlockedList(res.data.user.blockedUsers || [])
-      setCurrentUser(res.data.user)
-      setIsPremiumUser(!!res.data.user.isPremium)
-      setSavedPostIds(res.data.user.savedPosts || [])
+      const fetchedUser = res.data.user
+      setCurrentUserBlockedList(fetchedUser.blockedUsers || [])
+      setCurrentUser(fetchedUser)
+      setIsPremiumUser(!!fetchedUser.isPremium)
+      setSavedPostIds(fetchedUser.savedPosts || [])
+      await AsyncStorage.setItem('cached_current_user', JSON.stringify(fetchedUser))
 
       // Sync cloud preferences with local state and AsyncStorage
-      const { starredMessages, lockedChats, secretFolderPin, username, name, avatar, bio } = res.data.user
+      const { starredMessages, lockedChats, secretFolderPin, username, name, avatar, bio } = fetchedUser
       
       if (username) {
         setChatUsername(username)
@@ -1525,7 +1572,9 @@ export default function App() {
 
   const loadFeed = async () => {
     try {
-      const res = await getFeed()
+      const res = await getFeed((updatedPosts) => {
+        setPosts(updatedPosts)
+      })
       setPosts(res.data.posts)
     } catch (e) {}
   }
@@ -2725,6 +2774,7 @@ export default function App() {
                             unread: 0
                           }
                           setShowChat(newChatObj)
+                          setActiveTab('inbox')
                           setInboxSearchQuery('')
                         }}
                       >
@@ -2883,6 +2933,7 @@ export default function App() {
                         unread: 0
                       }
                       setShowChat(newChatObj)
+                      setActiveTab('inbox')
                     }}
                   >
                     <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
@@ -3040,7 +3091,10 @@ export default function App() {
                   <TouchableOpacity
                     key={chat.id}
                     style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
-                    onPress={() => setShowChat(chat)}
+                    onPress={() => {
+                      setShowChat(chat)
+                      setActiveTab('inbox')
+                    }}
                   >
                     <View style={[styles.chatAvatar, { backgroundColor: '#10b981' }]}>
                       <Text style={styles.avatarText}>{chat.name[0]}</Text>
@@ -3105,6 +3159,7 @@ export default function App() {
                         unread: 0
                       }
                       setShowChat(newChatObj)
+                      setActiveTab('inbox')
                       setInboxSearchQuery('')
                     }}
                   >
@@ -3130,7 +3185,10 @@ export default function App() {
             <TouchableOpacity
               key={chat.id}
               style={[styles.chatItem, { backgroundColor: theme.cardBg, borderBottomColor: theme.border }]}
-              onPress={() => setShowChat(chat)}
+              onPress={() => {
+                setShowChat(chat)
+                setActiveTab('inbox')
+              }}
               onLongPress={() => {
                 Alert.alert(
                   '🛡️ Chat Options',
@@ -3348,6 +3406,7 @@ export default function App() {
             const contactToOpen = inAppBanner.contact || { id: inAppBanner.senderId, _id: inAppBanner.senderId, name: inAppBanner.title }
             setSelectedChatContact(contactToOpen)
             setShowChat(contactToOpen)
+            setActiveTab('inbox')
             setInAppBanner(null)
           }}
           style={{

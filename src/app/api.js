@@ -717,7 +717,7 @@ export const sendMessage = async (data) => {
   }
 }
 
-export const getMessages = async (userId) => {
+export const getMessages = async (userId, onUpdate = null) => {
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   const myId = me._id || 'me'
   let messages = await getStoredData('@void_messages_' + myId, [])
@@ -744,17 +744,38 @@ export const getMessages = async (userId) => {
             }
           })
 
+          let updated = false
           cloudMsgs.forEach(cm => {
             const idx = messages.findIndex(lm => String(lm._id) === String(cm._id))
             if (idx === -1) {
               messages.push(cm)
+              updated = true
             } else {
+              const oldRead = messages[idx].isRead
+              const oldDelivered = messages[idx].isDelivered
               messages[idx].isRead = cm.isRead || messages[idx].isRead
               messages[idx].isDelivered = cm.isDelivered || messages[idx].isDelivered
+              if (oldRead !== messages[idx].isRead || oldDelivered !== messages[idx].isDelivered) {
+                updated = true
+              }
             }
           })
 
-          await setStoredData('@void_messages_' + myId, messages)
+          if (updated) {
+            await setStoredData('@void_messages_' + myId, messages)
+            if (onUpdate) {
+              const conversation = messages.filter(m => {
+                const s = typeof m.sender === 'object' ? (m.sender?._id || m.sender?.id) : m.sender
+                const r = typeof m.receiver === 'object' ? (m.receiver?._id || m.receiver?.id) : m.receiver
+
+                return (String(s) === String(myId) && String(r) === String(userId)) ||
+                  (String(s) === String(userId) && String(r) === String(myId)) ||
+                  (String(s) === 'me' && String(r) === String(userId)) ||
+                  (String(s) === String(userId) && String(r) === 'me')
+              })
+              onUpdate(conversation)
+            }
+          }
         }
       }
     } catch (e) { }
@@ -844,55 +865,56 @@ export const addGroupMember = async (groupId, username) => {
 }
 
 // ── Posts & Global Community Feed APIs ──────────────────────────────────────
-export const getFeed = async () => {
-  try {
-    const res = await fetch(`${FIRESTORE_POSTS_URL}?pageSize=50`)
-    if (res.ok) {
-      const json = await res.json()
-      if (json && json.documents) {
-        const cloudPosts = json.documents.map(doc => {
-          const f = doc.fields || {}
-          return {
-            _id: doc.name.split('/').pop(),
-            user: {
-              _id: f.userId?.stringValue || 'anon',
-              name: f.userName?.stringValue || 'User',
-              username: f.userUsername?.stringValue || 'user',
-              avatar: f.userAvatar?.stringValue || '👤'
-            },
-            content: f.content?.stringValue || '',
-            postType: f.postType?.stringValue || 'text',
-            mediaUrl: f.mediaUrl?.stringValue || null,
-            linkUrl: f.linkUrl?.stringValue || null,
-            isAnonymous: f.isAnonymous?.booleanValue || false,
-            VOIDEarned: f.VOIDEarned?.integerValue ? Number(f.VOIDEarned.integerValue) : 50,
-            likes: [],
-            comments: [],
-            createdAt: f.createdAt?.stringValue || new Date().toISOString()
+export const getFeed = async (onUpdate = null) => {
+  const cachedPosts = await getStoredData('@void_posts', DEFAULT_POSTS)
+
+  // Non-blocking background fetch from Cloud Firestore
+  (async () => {
+    try {
+      const res = await fetch(`${FIRESTORE_POSTS_URL}?pageSize=50`)
+      if (res.ok) {
+        const json = await res.json()
+        if (json && json.documents) {
+          const cloudPosts = json.documents.map(doc => {
+            const f = doc.fields || {}
+            return {
+              _id: doc.name.split('/').pop(),
+              user: {
+                _id: f.userId?.stringValue || 'anon',
+                name: f.userName?.stringValue || 'User',
+                username: f.userUsername?.stringValue || 'user',
+                avatar: f.userAvatar?.stringValue || '👤'
+              },
+              content: f.content?.stringValue || '',
+              postType: f.postType?.stringValue || 'text',
+              mediaUrl: f.mediaUrl?.stringValue || null,
+              linkUrl: f.linkUrl?.stringValue || null,
+              isAnonymous: f.isAnonymous?.booleanValue || false,
+              VOIDEarned: f.VOIDEarned?.integerValue ? Number(f.VOIDEarned.integerValue) : 50,
+              likes: [],
+              comments: [],
+              createdAt: f.createdAt?.stringValue || new Date().toISOString()
+            }
+          })
+
+          const mergedMap = new Map()
+          cloudPosts.forEach(p => mergedMap.set(p._id, p))
+          cachedPosts.forEach(p => { if (!mergedMap.has(p._id)) mergedMap.set(p._id, p) })
+          DEFAULT_POSTS.forEach(p => { if (!mergedMap.has(p._id)) mergedMap.set(p._id, p) })
+
+          const sortedPosts = Array.from(mergedMap.values()).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+          await setStoredData('@void_posts', sortedPosts)
+          if (onUpdate) {
+            onUpdate(sortedPosts)
           }
-        })
-
-        const localPosts = await getStoredData('@void_posts', [])
-        const mergedMap = new Map()
-        
-        // Load cloud posts first
-        cloudPosts.forEach(p => mergedMap.set(p._id, p))
-        // Load local posts
-        localPosts.forEach(p => { if (!mergedMap.has(p._id)) mergedMap.set(p._id, p) })
-        // Default seed posts fallback
-        DEFAULT_POSTS.forEach(p => { if (!mergedMap.has(p._id)) mergedMap.set(p._id, p) })
-
-        const sortedPosts = Array.from(mergedMap.values()).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-        await setStoredData('@void_posts', sortedPosts)
-        return { data: { success: true, posts: sortedPosts } }
+        }
       }
+    } catch (e) {
+      console.log('Cloud feed fetch notice:', e)
     }
-  } catch (e) {
-    console.log('Cloud feed fetch notice:', e)
-  }
+  })()
 
-  const posts = await getStoredData('@void_posts', DEFAULT_POSTS)
-  return { data: { success: true, posts } }
+  return { data: { success: true, posts: cachedPosts } }
 }
 
 export const createPost = async (data) => {

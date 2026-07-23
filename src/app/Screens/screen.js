@@ -149,11 +149,8 @@ export default function ChatScreen({
   const fetchMessages = async () => {
     const targetId = contact?._id || contact?.id || contact?.userId
     if (!targetId) return
-    try {
-      const res = await getMessages(targetId)
-      const dataArray = res.data && Array.isArray(res.data) 
-        ? res.data 
-        : (res.data?.messages && Array.isArray(res.data.messages) ? res.data.messages : null)
+
+    const handleMessagesData = (dataArray) => {
       if (dataArray) {
         const mapped = dataArray.map(m => {
           const content = m.content || ''
@@ -207,15 +204,33 @@ export default function ChatScreen({
         })
         setMessages(mapped)
       }
+    }
+
+    try {
+      const res = await getMessages(targetId, (updatedData) => {
+        handleMessagesData(updatedData)
+      })
+      const dataArray = res.data && Array.isArray(res.data) 
+        ? res.data 
+        : (res.data?.messages && Array.isArray(res.data.messages) ? res.data.messages : null)
+      handleMessagesData(dataArray)
     } catch (e) {
       console.log('Error fetching messages:', e)
     }
   }
 
   useEffect(() => {
+    // Instantly sync messages with cache when contact changes (nanoseconds load)
+    const targetId = contact?._id || contact?.id || contact?.userId
+    if (targetId) {
+      const cached = FAST_CHAT_CACHE.get(targetId) || []
+      setMessagesState(cached)
+    } else {
+      setMessagesState([])
+    }
+
     fetchMessages()
 
-    const targetId = contact?._id || contact?.id || contact?.userId
     const socket = rawWebrtcService.socket
 
     // Notify sender that recipient opened chat screen (Blue Ticks ✓✓)
