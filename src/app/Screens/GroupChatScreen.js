@@ -7,15 +7,30 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Icon from '../../components/Icon'
 import ChatDoodleBackground from '../../components/ChatDoodleBackground'
 
-import { getGroupMessages, sendGroupMessage } from '../api'
+import { getGroupMessages, sendGroupMessage, addGroupMember, removeGroupMember } from '../api'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export default function GroupChatScreen({ group, onBack }) {
+export default function GroupChatScreen({ group, allUsers, onRefresh, onRemoveGroupMember, onBack }) {
   const insets = useSafeAreaInsets()
   const topInset = Platform.OS === 'web' ? 0 : Math.max(insets.top || 0, Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
   const scrollViewRef = useRef(null)
+  const [myUserId, setMyUserId] = useState('me')
+
+  useEffect(() => {
+    AsyncStorage.getItem('@void_current_user').then(val => {
+      if (val) {
+        try {
+          const user = JSON.parse(val)
+          if (user?._id || user?.id) {
+            setMyUserId(String(user._id || user.id))
+          }
+        } catch (e) {}
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -34,41 +49,52 @@ export default function GroupChatScreen({ group, onBack }) {
   const fetchMessages = async () => {
     try {
       if (!group?.id) return
-      setLoadingMessages(true)
+      
+      const me = await AsyncStorage.getItem('@void_current_user')
+      const currentUser = me ? JSON.parse(me) : null
+      const myId = currentUser?._id || currentUser?.id || 'me'
+
       const res = await getGroupMessages(group.id)
       if (res?.data?.success && Array.isArray(res.data.messages)) {
-        setMessages(res.data.messages.map((m, idx) => ({
-          id: m._id || m.id || String(idx),
-          from: m.user?._id || m.user?._id ? 'You' : 'Them',
-          avatar: m.user?._id ? '👩' : '👨',
-          type: 'text',
-          text: m.content,
-          time: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          streak: false,
-        })))
-      } else if (Array.isArray(res?.data?.messages)) {
-        setMessages(res.data.messages)
+        setMessages(res.data.messages.map((m, idx) => {
+          const senderId = m.sender?._id || m.senderId || ''
+          const isMe = String(senderId) === String(myId)
+          return {
+            id: m._id || m.id || String(idx),
+            from: isMe ? 'You' : (m.sender?.name || m.senderName || 'Them'),
+            avatar: m.sender?.avatar || '👤',
+            type: 'text',
+            text: m.content,
+            time: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            streak: false,
+            senderId: senderId
+          }
+        }))
       }
     } catch (e) {
-      Alert.alert('Load failed', e?.message || 'Unknown error')
-    } finally {
-      setLoadingMessages(false)
+      console.log('Load group messages failed:', e)
     }
   }
 
   useEffect(() => {
     fetchMessages()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const interval = setInterval(fetchMessages, 4000)
+    return () => clearInterval(interval)
   }, [group?.id])
 
-  // Group management (for now UI only; messages are real)
+  // Derive group members list from Firestore group members list
+  const groupMembers = (group?.members || []).map((memberId, index) => {
+    const u = (allUsers || []).find(usr => String(usr._id || usr.id) === String(memberId))
+    return {
+      id: memberId,
+      name: u ? (u.name || u.username) : 'Group Member',
+      avatar: u ? u.avatar : '👤',
+      username: u ? u.username || 'member' : 'member',
+      status: String(group?.creator) === String(memberId) ? 'admin' : 'member',
+      joined: 'Active'
+    }
+  })
 
-  const [groupMembers, setGroupMembers] = useState([
-    { id: 1, name: 'Ali Khan', avatar: '👨', status: 'admin', joined: '2 days ago' },
-    { id: 2, name: 'Fatima', avatar: '👩‍🦰', status: 'member', joined: '1 day ago' },
-    { id: 3, name: 'Hassan', avatar: '👨‍🦱', status: 'member', joined: '12 hours ago' },
-    { id: 4, name: 'You', avatar: '👩', status: 'admin', joined: 'now' },
-  ])
   const [newMemberName, setNewMemberName] = useState('')
   const [showAddMember, setShowAddMember] = useState(false)
 
@@ -84,7 +110,7 @@ export default function GroupChatScreen({ group, onBack }) {
     { name: 'bright', label: 'Bright', emoji: '☀️' },
   ]
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return
     const text = input.trim()
     if (!group?.id) return
@@ -101,40 +127,60 @@ export default function GroupChatScreen({ group, onBack }) {
     }
 
     setMessages(prev => [...prev, optimisticMsg])
-    sendGroupMessage(group.id, { content: text }).catch(e => console.log('Group send error:', e))
+    try {
+      await sendGroupMessage(group.id, { content: text })
+      fetchMessages()
+    } catch (e) {
+      console.log('Group send error:', e)
+    }
   }
 
 
-  const addMember = () => {
-    if (!newMemberName.trim()) {
-      Alert.alert('⚠️ Name required', 'Member ka naam likho')
+  const addMember = async () => {
+    const cleanUsername = newMemberName.trim().toLowerCase().replace(/^@/, '')
+    if (!cleanUsername) {
+      Alert.alert('⚠️ Username required', 'Please type member username!')
       return
     }
     
-    const avatars = ['👨', '👩', '👨‍🦱', '👩‍🦰', '👨‍🦲', '👩‍🦳']
-    const newMember = {
-      id: Date.now(),
-      name: newMemberName,
-      avatar: avatars[Math.floor(Math.random() * avatars.length)],
-      status: 'member',
-      joined: 'now'
+    const targetUser = (allUsers || []).find(u => String(u.username || '').toLowerCase() === cleanUsername)
+    if (!targetUser) {
+      Alert.alert('Error', 'User not found!')
+      return
     }
-    
-    setGroupMembers(prev => [...prev, newMember])
-    setNewMemberName('')
-    setShowAddMember(false)
-    Alert.alert('✅ Added', `${newMemberName} group me add ho gaya!`)
+
+    const userId = targetUser._id || targetUser.id
+    try {
+      const res = await addGroupMember(group.id, userId)
+      if (res.data.success) {
+        Alert.alert('✅ Added', `Successfully added @${cleanUsername} to the group!`)
+        setNewMemberName('')
+        setShowAddMember(false)
+        if (onRefresh) onRefresh()
+      } else {
+        Alert.alert('Error', 'Failed to add member.')
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not add member.')
+    }
   }
 
-  const removeMember = (memberId) => {
+  const removeMember = async (memberId) => {
     if (groupMembers.length <= 2) {
-      Alert.alert('⚠️ Cannot remove', 'Group me kam se kam 2 member hone chaiye')
+      Alert.alert('⚠️ Cannot remove', 'Group must have at least 2 members')
       return
     }
     
-    const memberName = groupMembers.find(m => m.id === memberId)?.name
-    setGroupMembers(prev => prev.filter(m => m.id !== memberId))
-    Alert.alert('🗑️ Removed', `${memberName} group se nikala gaya`)
+    try {
+      if (onRemoveGroupMember) {
+        await onRemoveGroupMember(group.id, memberId)
+      } else {
+        await removeGroupMember(group.id, memberId)
+        if (onRefresh) onRefresh()
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to remove member.')
+    }
   }
 
   // legacy UI helper for media menu (mock) — text send uses real API
@@ -164,9 +210,19 @@ export default function GroupChatScreen({ group, onBack }) {
         { text: 'Cancel', onPress: () => {} },
         { 
           text: 'Leave', 
-          onPress: () => {
-            Alert.alert('👋 Left', 'Group se nikal gaye!')
-            onBack()
+          onPress: async () => {
+            try {
+              if (onRemoveGroupMember) {
+                await onRemoveGroupMember(group.id, myUserId)
+              } else {
+                await removeGroupMember(group.id, myUserId)
+              }
+              if (onRefresh) onRefresh()
+              Alert.alert('👋 Left', 'Group se nikal gaye!')
+              onBack()
+            } catch (e) {
+              Alert.alert('Error', 'Failed to leave group.')
+            }
           }
         }
       ]
@@ -264,7 +320,7 @@ export default function GroupChatScreen({ group, onBack }) {
                     <Text style={styles.memberJoined}>Joined: {member.joined}</Text>
                   </View>
                 </View>
-                {member.name !== 'You' && (
+                {String(member.id) !== String(myUserId) && (
                   <TouchableOpacity 
                     style={styles.removeBtn}
                     onPress={() => removeMember(member.id)}

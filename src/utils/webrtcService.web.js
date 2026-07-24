@@ -1,7 +1,6 @@
 // Web implementation for WebRTC & Socket Service
 import io from 'socket.io-client'
-
-const SOCKET_URL = 'https://azaad-app.web.app'
+import { SOCKET_URL } from '../app/api'
 
 class WebRTCServiceWeb {
   constructor() {
@@ -49,6 +48,24 @@ class WebRTCServiceWeb {
     if (this.socket) {
       try { this.socket.disconnect() } catch (e) {}
       this.socket = null
+    }
+  }
+
+  emitSendMessage(messageData) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('send-message', messageData)
+    }
+  }
+
+  emitMessageDelivered(messageId, senderId) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('message-delivered', { messageId, senderId })
+    }
+  }
+
+  emitMarkRead(senderId) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('mark-read', { senderId, readerId: this.currentUserId })
     }
   }
 

@@ -11,12 +11,13 @@ const NavigationBar = Platform.OS === 'android' ? require('expo-navigation-bar')
 import LoginScreen from './login'
 import ReelsScreen from './Screens/ReelsScreen'
 import ChatScreen from './Screens/screen'
+import GroupChatScreen from './Screens/GroupChatScreen'
 import NotificationsScreen from './Screens/NotificationsScreen'
 import ReferScreen from './Screens/ReferScreen'
 import Icon from '../components/Icon'
 import * as Contacts from 'expo-contacts'
 import * as ImagePicker from 'expo-image-picker'
-import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost, deletePost, uploadImageFile } from './api'
+import { setToken, loadSavedToken, getFeed, getBalance, dailyLogin, likePost, createPost, getMyCode, blockUser, getMe, getUsers, sendMessage, buyPremium, createGroup, joinGroup, addGroupMember, updatePreferences, commentPost, savePost, deletePost, uploadImageFile, saveReceivedMessage, publishStatus, getStatuses, viewStatus, getGroups, removeGroupMember } from './api'
 import * as Notifications from 'expo-notifications'
 import rawWebrtcService from '../utils/webrtcService'
 import FakeShutdownOverlay from './antitheft/FakeShutdownOverlay'
@@ -136,46 +137,10 @@ export default function App() {
   const [syncingContacts, setSyncingContacts] = useState(false)
 
   // Status/Story states
-  const [mockStatuses, setMockStatuses] = useState([
-    { 
-      id: '1', 
-      name: 'My Status (You)', 
-      avatar: '👑', 
-      time: 'Just now', 
-      content: '🔥 Just earned +500 VOID streak bonus on VOID CHAT!', 
-      color: '#c8ff00',
-      isMe: true,
-      viewers: [
-        { id: 'v1', name: 'Ali Raza', username: 'ali_raza', avatar: 'A', time: 'Today at 04:15 PM' },
-        { id: 'v2', name: 'Zainab Bibi', username: 'zainab_b', avatar: 'Z', time: 'Today at 04:22 PM' },
-        { id: 'v3', name: 'Hamza Khan', username: 'hamza_k', avatar: 'H', time: 'Today at 04:30 PM' },
-        { id: 'v4', name: 'Usman Ghani', username: 'usman_g', avatar: 'U', time: 'Today at 04:45 PM' }
-      ]
-    },
-    { 
-      id: '2', 
-      name: 'Ali Bhai', 
-      avatar: 'A', 
-      time: '10 mins ago', 
-      content: '⚡ Private end-to-end status update!', 
-      color: '#10b981',
-      viewers: [
-        { id: 'v1', name: 'You', username: 'you', avatar: '👑', time: 'Just now' }
-      ]
-    },
-    { 
-      id: '3', 
-      name: 'Inklab Admin', 
-      avatar: 'I', 
-      time: '5 hours ago', 
-      content: '🎙️ Join our community debate at 8 PM tonight!', 
-      color: '#ff4d4d',
-      viewers: [
-        { id: 'v1', name: 'You', username: 'you', avatar: '👑', time: '1 hr ago' },
-        { id: 'v2', name: 'Sara Ahmed', username: 'sara_a', avatar: 'S', time: '2 hrs ago' }
-      ]
-    },
-  ])
+  const [statuses, setStatuses] = useState([])
+  const [showStoryViewerModal, setShowStoryViewerModal] = useState(false)
+  const [activeStoryList, setActiveStoryList] = useState([])
+  const [activeStoryIndex, setActiveStoryIndex] = useState(0)
 
   const [showStatusViewersModal, setShowStatusViewersModal] = useState(false)
   const [selectedStatusForViewers, setSelectedStatusForViewers] = useState(null)
@@ -342,6 +307,7 @@ export default function App() {
   const [newGroupMonthlyFee, setNewGroupMonthlyFee] = useState('0')
   const [newGroupIsPrivate, setNewGroupIsPrivate] = useState(false)
   const [selectedGroupUsers, setSelectedGroupUsers] = useState([]) // array of contact IDs
+  const [groups, setGroups] = useState([])
 
   // ── Status Privacy & Lifespan States ──
   const [showStatusPrivacyModal, setShowStatusPrivacyModal] = useState(false)
@@ -794,7 +760,21 @@ export default function App() {
     const socket = rawWebrtcService.socket
     const handleGlobalMessage = (data) => {
       if (!data) return
+      
+      // Save received message to local storage
+      saveReceivedMessage(data).catch(e => console.log('Error saving global message in index.tsx:', e))
+
       const senderId = data.sender
+
+      // Auto add sender to activeChatIds in state so they show up in Inbox / Contacts list
+      if (currentUser && senderId) {
+        const currentList = currentUser.activeChatIds || []
+        if (!currentList.includes(String(senderId))) {
+          const updatedList = [...currentList, String(senderId)]
+          setCurrentUser({ ...currentUser, activeChatIds: updatedList })
+        }
+      }
+
       const activeContactId = selectedChatContactRef.current?._id || selectedChatContactRef.current?.id || selectedChatContactRef.current?.userId
 
       if (showChatRef.current && String(activeContactId) === String(senderId)) {
@@ -1146,17 +1126,6 @@ export default function App() {
         isPrivate: newGroupIsPrivate
       })
       if (res.data.success) {
-        const newGroupChat = {
-          id: res.data.group._id,
-          name: res.data.group.name,
-          color: '#10b981',
-          unread: 0,
-          streak: 0,
-          isGroup: true,
-          phoneNumber: 'Group Chat',
-          avatar: '👥'
-        }
-        setChatModeChats(prev => [newGroupChat, ...prev])
         Alert.alert('👥 Success', `Group "${newGroupName}" created successfully!`)
         setShowCreateGroupModal(false)
         setNewGroupName('')
@@ -1164,6 +1133,8 @@ export default function App() {
         setNewGroupIsPaid(false)
         setNewGroupMonthlyFee('0')
         setNewGroupIsPrivate(false)
+        setSelectedGroupUsers([])
+        loadGroups()
       } else {
         Alert.alert('Error', res.data.message || 'Could not create group.')
       }
@@ -1174,17 +1145,40 @@ export default function App() {
   }
 
   const handleAddGroupMember = async (groupId, username) => {
-    if (!username.trim()) return
+    const cleanUsername = username.trim().toLowerCase().replace(/^@/, '')
+    if (!cleanUsername) return
+
+    const targetUser = users.find(u => String(u.username || '').toLowerCase() === cleanUsername)
+    if (!targetUser) {
+      Alert.alert('Error', 'User not found!')
+      return
+    }
+
+    const userId = targetUser._id || targetUser.id
     try {
-      const res = await addGroupMember(groupId, { usernameToAdd: username.trim() })
+      const res = await addGroupMember(groupId, userId)
       if (res.data.success) {
-        Alert.alert('✅ Added', res.data.message)
+        Alert.alert('✅ Added', `Successfully added @${cleanUsername} to the group!`)
+        loadGroups()
       } else {
-        Alert.alert('Error', res.data.message || 'Failed to add member.')
+        Alert.alert('Error', 'Failed to add member.')
       }
     } catch (e) {
-      const errMsg = e.response?.data?.message || e.message || 'Could not add member.'
-      Alert.alert('Error', errMsg)
+      Alert.alert('Error', 'Could not add member.')
+    }
+  }
+
+  const handleRemoveGroupMember = async (groupId, userId) => {
+    try {
+      const res = await removeGroupMember(groupId, userId)
+      if (res.data.success) {
+        Alert.alert('🗑️ Removed', 'Member has been removed from the group!')
+        loadGroups()
+      } else {
+        Alert.alert('Error', 'Failed to remove member.')
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not remove member.')
     }
   }
 
@@ -1342,6 +1336,24 @@ export default function App() {
     ]
     setSocialModeChats(groupChats)
   }, [users, currentUser])
+
+  useEffect(() => {
+    if (activeTab === 'status') {
+      loadStatuses()
+    }
+    if (activeTab === 'groups' || activeTab === 'inbox') {
+      loadGroups()
+    }
+  }, [activeTab, currentUser])
+
+  useEffect(() => {
+    if (showChat && showChat.isGroup) {
+      const updatedGroup = groups.find(g => String(g._id || g.id) === String(showChat._id || showChat.id))
+      if (updatedGroup) {
+        setShowChat(updatedGroup)
+      }
+    }
+  }, [groups])
 
   // Android hardware back button handler
   useEffect(() => {
@@ -1526,9 +1538,53 @@ export default function App() {
     try {
       const res = await getUsers()
       const fetchedUsers = res.data.users || []
+      console.log('[index.tsx] loadUsers loaded count:', fetchedUsers.length)
       setUsers(fetchedUsers)
       await AsyncStorage.setItem('cached_users', JSON.stringify(fetchedUsers))
-    } catch (e) {}
+    } catch (e) {
+      console.error('[index.tsx] loadUsers error:', e)
+    }
+  }
+
+  const loadStatuses = async () => {
+    try {
+      const res = await getStatuses()
+      const fetchedStatuses = res.data.statuses || []
+      
+      const savedStr = await AsyncStorage.getItem('saved_user_contacts')
+      const savedList = savedStr ? JSON.parse(savedStr) : []
+      const myId = currentUser ? String(currentUser._id || currentUser.id) : ''
+
+      const filteredStatuses = fetchedStatuses.filter(s => {
+        const statusUserId = String(s.userId)
+        const isSelf = statusUserId === myId
+        const isContact = savedList.includes(statusUserId)
+        return isSelf || isContact
+      })
+
+      setStatuses(filteredStatuses)
+    } catch (e) {
+      console.log('[index.tsx] Error loading statuses:', e)
+    }
+  }
+
+  const loadGroups = async () => {
+    try {
+      const res = await getGroups()
+      const fetchedGroups = res.data.groups || []
+      const myId = currentUser ? String(currentUser._id || currentUser.id) : ''
+      
+      const myGroups = fetchedGroups.filter(g => {
+        const creatorId = String(g.creator)
+        const isCreator = creatorId === myId
+        const isMember = g.members && g.members.map(String).includes(myId)
+        return isCreator || isMember
+      })
+
+      setGroups(myGroups)
+    } catch (e) {
+      console.log('[index.tsx] Error loading groups:', e)
+    }
   }
 
   const loadBlockedUsers = async () => {
@@ -1573,6 +1629,21 @@ export default function App() {
         await AsyncStorage.setItem('secret_folder_pin', secretFolderPin)
         setSecretFolderPin(secretFolderPin)
       }
+
+      // Pre-fetch direct messages history for all active chat ids on login/startup to ensure 0ms load speed
+      if (fetchedUser.activeChatIds) {
+        let activeChatIds = []
+        try {
+          activeChatIds = typeof fetchedUser.activeChatIds === 'string'
+            ? JSON.parse(fetchedUser.activeChatIds)
+            : fetchedUser.activeChatIds
+        } catch (err) {}
+        if (Array.isArray(activeChatIds)) {
+          activeChatIds.forEach(chatId => {
+            getMessages(chatId)
+          })
+        }
+      }
     } catch (e) {}
   }
 
@@ -1611,7 +1682,7 @@ export default function App() {
     }
   }
 
-  const handlePostStatusMedia = () => {
+  const handlePostStatusMedia = async () => {
     if (!statusMediaUri) return
     const trimInfo = statusMediaType === 'video' ? ` (Trimmed: ${Math.floor(statusTrimStart / 60)}:${statusTrimStart % 60 < 10 ? '0' : ''}${statusTrimStart % 60} - ${Math.floor(statusTrimEnd / 60)}:${statusTrimEnd % 60 < 10 ? '0' : ''}${statusTrimEnd % 60})` : ''
     const mediaTag = statusMediaType === 'video' ? `[VIDEO] ${statusMediaUri}` : `[MEDIA] ${statusMediaUri}`
@@ -1619,21 +1690,16 @@ export default function App() {
       ? `${statusCaptionText.trim()}${trimInfo}\n${mediaTag}`
       : `${mediaTag}${trimInfo}`
 
-    const newStatusObj = {
-      id: String(Date.now()),
-      name: 'My Status (You)',
-      avatar: currentUser?.avatar || '👑',
-      time: 'Just now',
-      content: finalContent,
-      color: '#c8ff00',
-      isMe: true,
-      viewers: []
+    try {
+      await publishStatus({ content: finalContent, color: '#c8ff00' })
+      setShowStatusMediaPreview(false)
+      setStatusMediaUri(null)
+      setStatusCaptionText('')
+      Alert.alert('🎉 Status Published!', 'Your WhatsApp-style status update is live for your contacts!')
+      loadStatuses()
+    } catch (e) {
+      Alert.alert('Error', 'Failed to publish status.')
     }
-    setMockStatuses(prev => [newStatusObj, ...prev])
-    setShowStatusMediaPreview(false)
-    setStatusMediaUri(null)
-    setStatusCaptionText('')
-    Alert.alert('🎉 Status Published!', 'Your WhatsApp-style status update is live for your contacts!')
   }
 
   const loadBalance = async () => {
@@ -1822,9 +1888,8 @@ export default function App() {
     }
   }
 
-  const handlePostStatus = () => {
+  const handlePostStatus = async () => {
     let content = ''
-    let type = statusType
     let color = '#c8ff00'
 
     if (statusType === 'text') {
@@ -1850,30 +1915,20 @@ export default function App() {
       content = `[AUDIO] 🎙️ Voice status update`
     }
 
-    const durationHours = isPremiumUser ? 72 : 24
-    const expiryTimestamp = Date.now() + durationHours * 3600 * 1000
-
-    const newStatus = {
-      id: Date.now().toString(),
-      name: `@${currentUser?.username || 'You'}`,
-      avatar: (currentUser?.username?.[0] || 'Y').toUpperCase(),
-      time: 'Just now',
-      content: content,
-      color: color,
-      isPremiumStatus: isPremiumUser,
-      createdAt: Date.now(),
-      expiresAt: expiryTimestamp
+    try {
+      await publishStatus({ content, color })
+      setNewStatusText('')
+      setStatusMediaUri(null)
+      setStatusLinkUrl('')
+      setShowCreateStatusModal(false)
+      Alert.alert(
+        'Status Published 🚀',
+        `Your status is live! ${isPremiumUser ? '👑 VOID Premium: Live for 72 Hours (3 Days)!' : '⏳ Normal User: Live for 24 Hours.'}`
+      )
+      loadStatuses()
+    } catch (e) {
+      Alert.alert('Error', 'Failed to publish status.')
     }
-
-    setMockStatuses([newStatus, ...mockStatuses])
-    setNewStatusText('')
-    setStatusMediaUri(null)
-    setStatusLinkUrl('')
-    setShowCreateStatusModal(false)
-    Alert.alert(
-      'Status Published 🚀',
-      `Your status is live! ${isPremiumUser ? '👑 VOID Premium: Live for 72 Hours (3 Days)!' : '⏳ Normal User: Live for 24 Hours.'}`
-    )
   }
 
   const handleSyncContacts = async (silent = false) => {
@@ -1896,12 +1951,13 @@ export default function App() {
       const savedList = savedStr ? JSON.parse(savedStr) : []
 
       if (Platform.OS === 'web') {
-        // On Web: Only match users whose IDs are explicitly saved in saved_user_contacts
+        // On Web: Only show contacts who have active chat histories (in activeChatIds list) for strict privacy
+        const myActiveChatIds = currentUser?.activeChatIds || []
         currentUsers.forEach(u => {
           const uid = String(u._id || u.id)
-          if (savedList.includes(uid)) {
+          if (myActiveChatIds.includes(uid)) {
             matched.push({
-              deviceName: u.name || u.username || 'Saved Contact',
+              deviceName: u.name || u.username || 'Contact',
               user: u,
               matchedNumber: u.phone || u.phoneNumber || u.email || u.username
             })
@@ -2751,8 +2807,18 @@ export default function App() {
                     const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
                     const filtered = users.filter(u => {
                       const uname = (u.username || '').toLowerCase()
+                      const uEmail = (u.email || '').toLowerCase()
                       const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                      return !isSelf && uname === q
+                      if (isSelf) return false
+
+                      const matchesUsername = uname === q
+                      const matchesEmail = uEmail === q
+
+                      const cleanPhone = uEmail.replace(/\D/g, '')
+                      const cleanQuery = q.replace(/\D/g, '')
+                      const matchesPhone = cleanQuery.length >= 7 && cleanPhone === cleanQuery
+
+                      return matchesUsername || matchesEmail || matchesPhone
                     })
                     if (filtered.length === 0) {
                       return (
@@ -2974,50 +3040,139 @@ export default function App() {
 
     // ── Render Status slide ──
     if (activeTab === 'status') {
+      const myId = currentUser ? String(currentUser._id || currentUser.id) : ''
+      const myStatuses = statuses.filter(s => String(s.userId) === myId)
+      const friendsStatuses = statuses.filter(s => String(s.userId) !== myId)
+
       return (
         <View style={{ flex: 1, backgroundColor: theme.bg }}>
-
-          {/* Status List */}
           <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
             <View style={{ padding: 16, gap: 12 }}>
-              {/* My Status Update */}
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: theme.cardBg,
-                  borderRadius: 16,
-                  padding: 14,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  gap: 12
-                }}
-                onPress={() => setShowCreateStatusModal(true)}
-              >
-                <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primary + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primary + '40', position: 'relative' }}>
-                  <Icon name="status" size={22} color={theme.primary} />
-                  <View style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center' }}>
-                    <Text style={{ color: '#000', fontSize: 11, fontWeight: '900' }}>+</Text>
+              
+              {/* My Status Update Section */}
+              <View style={{ gap: 8 }}>
+                <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginLeft: 4 }}>MY STATUS</Text>
+                
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: theme.cardBg,
+                    borderRadius: 16,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    gap: 12
+                  }}
+                  onPress={() => {
+                    if (myStatuses.length > 0) {
+                      setActiveStoryList(myStatuses)
+                      setActiveStoryIndex(0)
+                      setShowStoryViewerModal(true)
+                    } else {
+                      setShowCreateStatusModal(true)
+                    }
+                  }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primary + '15', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: theme.primary + '40', position: 'relative' }}>
+                    {myStatuses.length > 0 ? (
+                      <Text style={{ fontSize: 20 }}>{myStatuses[0].avatar || '👑'}</Text>
+                    ) : (
+                      <Icon name="status" size={22} color={theme.primary} />
+                    )}
+                    <View style={{ position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ color: '#000', fontSize: 11, fontWeight: '900' }}>{myStatuses.length > 0 ? myStatuses.length : '+'}</Text>
+                    </View>
                   </View>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>My Status Update</Text>
-                  <Text style={{ color: theme.subText, fontSize: 11 }}>Share a snap or text status</Text>
-                </View>
-              </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>
+                      {myStatuses.length > 0 ? 'View My Status Updates' : 'My Status Update'}
+                    </Text>
+                    <Text style={{ color: theme.subText, fontSize: 11 }}>
+                      {myStatuses.length > 0 ? `${myStatuses.length} updates live` : 'Share a snap or text status'}
+                    </Text>
+                  </View>
+                  {myStatuses.length > 0 && (
+                    <TouchableOpacity
+                      style={{ padding: 8 }}
+                      onPress={(e) => {
+                        e.stopPropagation()
+                        setShowCreateStatusModal(true)
+                      }}
+                    >
+                      <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '800' }}>Add +</Text>
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              </View>
 
-              <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 10, marginLeft: 4 }}>
+              {/* Recent Updates Section */}
+              <Text style={{ color: theme.subText, fontSize: 12, fontWeight: '800', marginTop: 12, marginLeft: 4 }}>
                 RECENT UPDATES
               </Text>
 
-              {/* Status List Fallback */}
-              <View style={{ padding: 30, alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 1, borderColor: theme.border }}>
-                <Icon name="status" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
-                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800', textAlign: 'center' }}>No recent updates</Text>
-                <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
-                  Status updates from your friends will appear here!
-                </Text>
-              </View>
+              {friendsStatuses.length === 0 ? (
+                <View style={{ padding: 30, alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 16, borderWidth: 1, borderColor: theme.border }}>
+                  <Icon name="status" size={36} color={theme.subText} style={{ marginBottom: 8 }} />
+                  <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800', textAlign: 'center' }}>No recent updates</Text>
+                  <Text style={{ color: theme.subText, fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                    Status updates from your friends will appear here!
+                  </Text>
+                </View>
+              ) : (
+                (() => {
+                  const grouped = {}
+                  friendsStatuses.forEach(s => {
+                    const uid = String(s.userId)
+                    if (!grouped[uid]) grouped[uid] = []
+                    grouped[uid].push(s)
+                  })
+
+                  return Object.keys(grouped).map(uid => {
+                    const userStatuses = grouped[uid]
+                    const firstStatus = userStatuses[0]
+                    return (
+                      <TouchableOpacity
+                        key={uid}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: theme.cardBg,
+                          borderRadius: 16,
+                          padding: 14,
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          gap: 12
+                        }}
+                        onPress={() => {
+                          setActiveStoryList(userStatuses)
+                          setActiveStoryIndex(0)
+                          setShowStoryViewerModal(true)
+                        }}
+                      >
+                        <View style={{
+                          width: 48, height: 48, borderRadius: 24,
+                          borderWidth: 2, borderColor: '#c8ff00',
+                          justifyContent: 'center', alignItems: 'center'
+                        }}>
+                          <Text style={{ fontSize: 20 }}>{firstStatus.avatar || '👤'}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: theme.text, fontSize: 14, fontWeight: '800' }}>
+                            @{firstStatus.username || firstStatus.name}
+                          </Text>
+                          <Text style={{ color: theme.subText, fontSize: 11 }}>
+                            {userStatuses.length} status update{userStatuses.length > 1 ? 's' : ''}
+                          </Text>
+                        </View>
+                        <View style={{ backgroundColor: '#c8ff0015', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#c8ff0040' }}>
+                          <Text style={{ color: '#c8ff00', fontSize: 11, fontWeight: '800' }}>👁️ View</Text>
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  })
+                })()
+              )}
             </View>
           </ScrollView>
         </View>
@@ -3026,7 +3181,7 @@ export default function App() {
 
     // ── Render Groups list ──
     if (activeTab === 'groups') {
-      const groupChats = chatModeChats.filter(chat => chat.isGroup)
+      const groupChats = groups
       return (
         <View style={{ flex: 1, backgroundColor: theme.bg }}>
 
@@ -3140,8 +3295,18 @@ export default function App() {
                 const q = inboxSearchQuery.trim().toLowerCase().replace(/^@/, '')
                 const filtered = users.filter(u => {
                   const uname = (u.username || '').toLowerCase()
+                  const uEmail = (u.email || '').toLowerCase()
                   const isSelf = currentUser && String(u._id || u.id) === String(currentUser._id || currentUser.id)
-                  return !isSelf && uname === q
+                  if (isSelf) return false
+
+                  const matchesUsername = uname === q
+                  const matchesEmail = uEmail === q
+
+                  const cleanPhone = uEmail.replace(/\D/g, '')
+                  const cleanQuery = q.replace(/\D/g, '')
+                  const matchesPhone = cleanQuery.length >= 7 && cleanPhone === cleanQuery
+
+                  return matchesUsername || matchesEmail || matchesPhone
                 })
                 if (filtered.length === 0) {
                   return (
@@ -3539,22 +3704,31 @@ export default function App() {
             {activeTab === 'inbox' && (
               <View style={{ flex: 1 }}>
                 {showChat ? (
-                  <ChatScreen
-                    contact={{ ...showChat, myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
-                    activeChats={chatModeChats}
-                    onBack={() => setShowChat(false)}
-                    onViewProfile={(profile) => setSelectedUserProfile(profile)}
-                    blockedUsers={currentUserBlockedList}
-                    messageTextSize={messageTextSize}
-                    chatWallpaper={chatWallpaper}
-                    nameColor={nameColor}
-                    onBlockToggle={(id) => handleToggleBlock(id, '')}
-                    onLockToggle={handleLockToggle}
-                    onChangeAvatar={handleChangeAvatar}
-                    isLocked={secretChatIds.includes(showChat?.id)}
-                    onAddGroupMember={handleAddGroupMember}
-                    isDayMode={isDayMode}
-                  />
+                  showChat.isGroup ? (
+                    <GroupChatScreen
+                      group={showChat}
+                      allUsers={users}
+                      onRefresh={loadGroups}
+                      onRemoveGroupMember={handleRemoveGroupMember}
+                      onBack={() => setShowChat(false)}
+                    />
+                  ) : (
+                    <ChatScreen
+                      contact={{ ...showChat, myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
+                      activeChats={chatModeChats}
+                      onBack={() => setShowChat(false)}
+                      onViewProfile={(profile) => setSelectedUserProfile(profile)}
+                      blockedUsers={currentUserBlockedList}
+                      messageTextSize={messageTextSize}
+                      chatWallpaper={chatWallpaper}
+                      nameColor={nameColor}
+                      onBlockToggle={(id) => handleToggleBlock(id, '')}
+                      onLockToggle={handleLockToggle}
+                      onChangeAvatar={handleChangeAvatar}
+                      userBubbleTheme={userBubbleTheme}
+                      onAddGroupMember={handleAddGroupMember}
+                    />
+                  )
                 ) : (
                   <View style={styles.desktopPlaceholder}>
                     <Icon name="lock" size={64} color="#1c1c28" forceEmoji={true} />
@@ -3969,31 +4143,41 @@ export default function App() {
       >
         <View style={(!isLargeScreen && showChat) ? { flex: 1, backgroundColor: '#000' } : { position: 'absolute', width: 0, height: 0, opacity: 0 }}>
           {((!isLargeScreen && !!showChat) || (isCallActiveGlobally && activeCallContact)) && (
-            <ChatScreen
-              contact={{ ...(showChat || activeCallContact), myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
-              activeChats={chatModeChats}
-              onBack={() => setShowChat(false)}
-              onViewProfile={(profile) => setSelectedUserProfile(profile)}
-              blockedUsers={currentUserBlockedList}
-              messageTextSize={messageTextSize}
-              chatWallpaper={chatWallpaper}
-              userBubbleTheme={userBubbleTheme}
-              nameColor={nameColor}
-              onBlockToggle={(id) => handleToggleBlock(id, '')}
-              onLockToggle={handleLockToggle}
-              onChangeAvatar={handleChangeAvatar}
-              isLocked={secretChatIds.includes((showChat || activeCallContact)?.id)}
-              onAddGroupMember={handleAddGroupMember}
-              isDayMode={isDayMode}
-              onCallStateChange={(active) => {
-                setCallActiveGlobally(active)
-                if (active) {
-                  setActiveCallContact(showChat || activeCallContact)
-                } else {
-                  setActiveCallContact(null)
-                }
-              }}
-            />
+            ((showChat || activeCallContact)?.isGroup) ? (
+              <GroupChatScreen
+                group={showChat || activeCallContact}
+                allUsers={users}
+                onRefresh={loadGroups}
+                onRemoveGroupMember={handleRemoveGroupMember}
+                onBack={() => setShowChat(false)}
+              />
+            ) : (
+              <ChatScreen
+                contact={{ ...(showChat || activeCallContact), myUserId: currentUser?._id || currentUser?.id, myUsername: currentUser?.username || chatUsername }}
+                activeChats={chatModeChats}
+                onBack={() => setShowChat(false)}
+                onViewProfile={(profile) => setSelectedUserProfile(profile)}
+                blockedUsers={currentUserBlockedList}
+                messageTextSize={messageTextSize}
+                chatWallpaper={chatWallpaper}
+                userBubbleTheme={userBubbleTheme}
+                nameColor={nameColor}
+                onBlockToggle={(id) => handleToggleBlock(id, '')}
+                onLockToggle={handleLockToggle}
+                onChangeAvatar={handleChangeAvatar}
+                isLocked={secretChatIds.includes((showChat || activeCallContact)?.id)}
+                onAddGroupMember={handleAddGroupMember}
+                isDayMode={isDayMode}
+                onCallStateChange={(active) => {
+                  setCallActiveGlobally(active)
+                  if (active) {
+                    setActiveCallContact(showChat || activeCallContact)
+                  } else {
+                    setActiveCallContact(null)
+                  }
+                }}
+              />
+            )
           )}
         </View>
       </Modal>
@@ -4468,6 +4652,168 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* 🎬 Full-Screen Story Playback Viewer Modal */}
+      <Modal
+        visible={showStoryViewerModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowStoryViewerModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+          {activeStoryList.length > 0 && (() => {
+            const story = activeStoryList[activeStoryIndex]
+            const isMyStory = String(story.userId) === String(currentUser?._id || currentUser?.id)
+            
+            // Auto view registration for other users' stories
+            if (!isMyStory && currentUser) {
+              const myViewerInfo = {
+                id: currentUser._id || currentUser.id,
+                name: currentUser.name || currentUser.username,
+                username: currentUser.username,
+                avatar: currentUser.avatar || '👤',
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+              viewStatus(story.id, myViewerInfo).catch(err => console.log('Error registering view:', err))
+            }
+
+            // Extract media info if applicable
+            let isMedia = false
+            let mediaUrl = ''
+            if (story.content && story.content.startsWith('[MEDIA]')) {
+              isMedia = true
+              mediaUrl = story.content.replace('[MEDIA] ', '')
+            } else if (story.content && story.content.startsWith('[VIDEO]')) {
+              isMedia = true
+              mediaUrl = story.content.replace('[VIDEO] ', '')
+            }
+
+            return (
+              <View style={{ flex: 1, justifyContent: 'space-between', padding: 16 }}>
+                
+                {/* Top Progress bar and User Header */}
+                <View style={{ gap: 12 }}>
+                  {/* Segmented Progress Bars */}
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
+                    {activeStoryList.map((_, idx) => (
+                      <View 
+                        key={idx} 
+                        style={{ 
+                          flex: 1, 
+                          height: 3, 
+                          backgroundColor: idx === activeStoryIndex ? '#c8ff00' : idx < activeStoryIndex ? '#ffffff80' : '#ffffff20',
+                          borderRadius: 2 
+                        }} 
+                      />
+                    ))}
+                  </View>
+
+                  {/* Header */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#ffffff20', justifyContent: 'center', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 16, color: '#fff', fontWeight: '800' }}>{story.avatar || '👤'}</Text>
+                      </View>
+                      <View>
+                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '800' }}>
+                          {isMyStory ? 'My Status (You)' : `@${story.username || story.name}`}
+                        </Text>
+                        <Text style={{ color: '#ffffffb0', fontSize: 10 }}>
+                          {new Date(story.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity 
+                      onPress={() => setShowStoryViewerModal(false)}
+                      style={{ padding: 6, backgroundColor: '#ffffff20', borderRadius: 20 }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', paddingHorizontal: 6 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Main Content Area */}
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 20 }}>
+                  {isMedia ? (
+                    <Image 
+                      source={{ uri: mediaUrl }} 
+                      style={{ width: '100%', height: '80%', borderRadius: 16 }} 
+                      resizeMode="contain" 
+                    />
+                  ) : (
+                    <View style={{
+                      padding: 24,
+                      backgroundColor: story.color || '#6366f1',
+                      borderRadius: 24,
+                      minHeight: 250,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      width: '100%'
+                    }}>
+                      <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center', lineHeight: 28 }}>
+                        {story.content}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Navigation and Bottom actions */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 16 }}>
+                  
+                  {/* Previous Button */}
+                  <TouchableOpacity
+                    style={{ padding: 12, backgroundColor: '#ffffff15', borderRadius: 12 }}
+                    onPress={() => {
+                      if (activeStoryIndex > 0) {
+                        setActiveStoryIndex(activeStoryIndex - 1)
+                      }
+                    }}
+                    disabled={activeStoryIndex === 0}
+                  >
+                    <Text style={{ color: activeStoryIndex === 0 ? '#ffffff40' : '#fff', fontWeight: '800' }}>◀ Prev</Text>
+                  </TouchableOpacity>
+
+                  {/* Viewers or Swipe up info */}
+                  {isMyStory ? (
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#c8ff0030', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#c8ff0060' }}
+                      onPress={() => {
+                        setSelectedStatusForViewers(story)
+                        setShowStatusViewersModal(true)
+                      }}
+                    >
+                      <Text style={{ fontSize: 16 }}>👁️</Text>
+                      <Text style={{ color: '#c8ff00', fontSize: 13, fontWeight: '800' }}>
+                        Views ({story.viewers?.length || 0})
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={{ color: '#ffffff80', fontSize: 12 }}>End-to-End Encrypted Status</Text>
+                  )}
+
+                  {/* Next Button */}
+                  <TouchableOpacity
+                    style={{ padding: 12, backgroundColor: '#ffffff15', borderRadius: 12 }}
+                    onPress={() => {
+                      if (activeStoryIndex < activeStoryList.length - 1) {
+                        setActiveStoryIndex(activeStoryIndex + 1)
+                      } else {
+                        setShowStoryViewerModal(false)
+                      }
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>
+                      {activeStoryIndex === activeStoryList.length - 1 ? 'Close ✕' : 'Next ▶'}
+                    </Text>
+                  </TouchableOpacity>
+
+                </View>
+
+              </View>
+            )
+          })()}
+        </SafeAreaView>
       </Modal>
 
       {/* 👁️ Status Viewers Modal */}

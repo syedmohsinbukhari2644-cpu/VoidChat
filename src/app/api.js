@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 // ── 100% Pure Client & Firebase Engine for VOID CHAT ─────────────────────────────
 // No external Railway/Render server required. Eliminates 404 connection errors.
 
-export const SOCKET_URL = 'https://azaad-app.web.app'
+export const SOCKET_URL = 'http://localhost:3000'
 
 // Initial Seed Users
 const DEFAULT_USERS = [
@@ -141,6 +141,7 @@ const FIRESTORE_MESSAGES_URL = `${FIRESTORE_BASE_URL}/messages`
 const FIRESTORE_POSTS_URL = `${FIRESTORE_BASE_URL}/posts`
 const FIRESTORE_REELS_URL = `${FIRESTORE_BASE_URL}/reels`
 const FIRESTORE_GROUPS_URL = `${FIRESTORE_BASE_URL}/groups`
+const FIRESTORE_STATUSES_URL = `${FIRESTORE_BASE_URL}/statuses`
 
 // Helper to generate updateMask parameter string for Firestore REST PATCH
 const getUpdateMaskParams = (fields) => {
@@ -466,11 +467,12 @@ export const getUsers = async () => {
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 3500)
-    const res = await fetch(`${FIRESTORE_USERS_URL}?pageSize=10000`, { signal: controller.signal })
+    const res = await fetch(`${FIRESTORE_USERS_URL}?pageSize=300`, { signal: controller.signal })
     clearTimeout(timeoutId)
 
     if (res.ok) {
       const json = await res.json()
+      console.log('[Firestore] getUsers fetch OK, count:', json.documents?.length || 0)
       if (json.documents && Array.isArray(json.documents)) {
         for (const doc of json.documents) {
           const fields = doc.fields || {}
@@ -502,8 +504,16 @@ export const getUsers = async () => {
           }
         }
       }
+    } else {
+      console.log('[Firestore] getUsers fetch NOT OK. Status:', res.status, res.statusText)
+      try {
+        const errText = await res.text()
+        console.log('[Firestore] Error response body:', errText)
+      } catch (err) {}
     }
-  } catch (e) { }
+  } catch (e) {
+    console.error('[Firestore] getUsers exception:', e)
+  }
 
   const mergedUsersList = Array.from(userMap.values())
   return {
@@ -558,6 +568,7 @@ export const updatePreferences = async (data) => {
       // Include any other syncable preferences if needed
       if (updated.starredMessages) fields.starredMessages = { stringValue: JSON.stringify(updated.starredMessages) }
       if (updated.lockedChats) fields.lockedChats = { stringValue: JSON.stringify(updated.lockedChats) }
+      if (updated.activeChatIds) fields.activeChatIds = { stringValue: JSON.stringify(updated.activeChatIds) }
       if (updated.secretFolderPin) fields.secretFolderPin = { stringValue: String(updated.secretFolderPin) }
 
       const firestoreUrl = `${FIRESTORE_USERS_URL}/${updated._id}?${getUpdateMaskParams(fields)}`
@@ -630,6 +641,16 @@ export const sendMessage = async (data) => {
   // 2. Non-blocking Background Cloud & Backend Sync (0ms delay for user UI)
   (async () => {
     try {
+      // Emit socket event to receiver in real-time
+      try {
+        const webrtcService = require('../utils/webrtcService').default
+        if (webrtcService && webrtcService.emitSendMessage) {
+          webrtcService.emitSendMessage(newMsg)
+        }
+      } catch (err) {
+        console.log('Socket send emission error:', err)
+      }
+
       // Check online status in background
       const isDelivered = await isUserOnline(receiverId)
       if (isDelivered) {
@@ -655,15 +676,45 @@ export const sendMessage = async (data) => {
         })
       })
 
-      // Sync activeChatIds to Firestore
+      // Sync activeChatIds to Firestore for sender
       if (me._id) {
         let senderActiveChats = me.activeChatIds || []
+        if (!senderActiveChats.includes(receiverId)) {
+          senderActiveChats.push(receiverId)
+        }
         const senderFields = { activeChatIds: { stringValue: JSON.stringify(senderActiveChats) } }
         await fetch(`${FIRESTORE_USERS_URL}/${me._id}?updateMask.fieldPaths=activeChatIds`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: senderFields })
         })
+      }
+
+      // Sync activeChatIds to Firestore for receiver
+      try {
+        const recRes = await fetch(`${FIRESTORE_USERS_URL}/${receiverId}`)
+        if (recRes.ok) {
+          const recDoc = await recRes.json()
+          const recFields = recDoc.fields || {}
+          let recActiveChats = []
+          if (recFields.activeChatIds?.stringValue) {
+            try { recActiveChats = JSON.parse(recFields.activeChatIds.stringValue) } catch(e){}
+          }
+          if (!recActiveChats.includes(myId)) {
+            recActiveChats.push(myId)
+            await fetch(`${FIRESTORE_USERS_URL}/${receiverId}?updateMask.fieldPaths=activeChatIds`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fields: {
+                  activeChatIds: { stringValue: JSON.stringify(recActiveChats) }
+                }
+              })
+            })
+          }
+        }
+      } catch (err) {
+        console.log('Error updating receiver activeChatIds:', err)
       }
     } catch (e) {
       console.log('Background cloud message sync error:', e)
@@ -689,7 +740,7 @@ export const getMessages = async (userId, onUpdate = null) => {
   (async () => {
     try {
       const chatRoomId = getChatRoomId(myId, userId)
-      const url = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages?pageSize=1000`
+      const url = `${FIRESTORE_BASE_URL}/chats/${chatRoomId}/messages?pageSize=300`
       const res = await fetch(url)
       if (res.ok) {
         const json = await res.json()
@@ -757,6 +808,52 @@ export const getMessages = async (userId, onUpdate = null) => {
   return { data: { success: true, messages: conversation } }
 }
 
+export const saveReceivedMessage = async (msg) => {
+  try {
+    const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+    const myId = me._id || 'me'
+    const messages = await getStoredData('@void_messages_' + myId, [])
+    
+    const msgId = msg._id || msg.id
+    const exists = messages.some(m => String(m._id || m.id) === String(msgId))
+    if (!exists) {
+      messages.push({
+        _id: msgId,
+        sender: msg.sender,
+        receiver: msg.receiver,
+        content: msg.content,
+        isRead: msg.isRead || false,
+        isDelivered: msg.isDelivered || false,
+        createdAt: msg.createdAt || new Date().toISOString()
+      })
+      await setStoredData('@void_messages_' + myId, messages)
+    }
+
+    // Add other user to activeChatIds to auto-show in Chat List
+    const otherId = String(msg.sender) === String(myId) ? String(msg.receiver) : String(msg.sender)
+    if (me._id && otherId && otherId !== 'me' && otherId !== String(myId)) {
+      let myActiveChats = me.activeChatIds || []
+      if (!myActiveChats.includes(otherId)) {
+        myActiveChats.push(otherId)
+        me.activeChatIds = myActiveChats
+        await setStoredData('@void_current_user', me)
+        
+        // Sync activeChatIds to cloud Firestore REST API
+        const fields = { activeChatIds: { stringValue: JSON.stringify(myActiveChats) } }
+        const firestoreUrl = `${FIRESTORE_USERS_URL}/${me._id}?updateMask.fieldPaths=activeChatIds`
+        await fetch(firestoreUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields })
+        }).catch(err => console.log('Error syncing activeChatIds on message receive:', err))
+      }
+    }
+  } catch (e) {
+    console.log('Error saving received message:', e)
+  }
+}
+
+
 export const deleteMessage = async (receiverId, msgId) => {
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
   const myId = me._id || 'me'
@@ -780,51 +877,258 @@ export const deleteMessage = async (receiverId, msgId) => {
 
 // ── Group Messages APIs ─────────────────────────────────────────────────────
 export const createGroup = async (data) => {
-  const groups = await getStoredData('@void_groups', [])
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  const groupId = 'group_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
 
   const newGroup = {
-    _id: 'group_' + Date.now(),
+    _id: groupId,
+    id: groupId,
     name: data.name || 'New Group',
     description: data.description || '',
-    creator: me._id,
-    members: [me._id, ...(data.members || [])],
+    creator: me._id || me.id,
+    members: [me._id || me.id, ...(data.members || [])],
+    isGroup: true,
     createdAt: new Date().toISOString()
   }
 
-  groups.push(newGroup)
-  await setStoredData('@void_groups', groups)
+  // 1. Save to local storage cache
+  const localGroups = await getStoredData('@void_groups', [])
+  localGroups.push(newGroup)
+  await setStoredData('@void_groups', localGroups)
+
+  // 2. Upload to Cloud Firestore REST API
+  try {
+    const fields = {
+      id: { stringValue: String(groupId) },
+      _id: { stringValue: String(groupId) },
+      name: { stringValue: String(newGroup.name) },
+      description: { stringValue: String(newGroup.description) },
+      creator: { stringValue: String(newGroup.creator) },
+      members: { stringValue: JSON.stringify(newGroup.members) },
+      isGroup: { booleanValue: true },
+      createdAt: { stringValue: String(newGroup.createdAt) }
+    }
+    const firestoreUrl = `${FIRESTORE_GROUPS_URL}/${groupId}?${getUpdateMaskParams(fields)}`
+    await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    })
+  } catch (e) {
+    console.log('[Firestore] Group broadcast error:', e)
+  }
+
   return { data: { success: true, group: newGroup } }
 }
 
+export const getGroups = async () => {
+  const localGroups = await getStoredData('@void_groups', [])
+  const groupMap = new Map()
+
+  for (const g of localGroups) {
+    groupMap.set(String(g._id || g.id), g)
+  }
+
+  try {
+    const res = await fetch(`${FIRESTORE_GROUPS_URL}?pageSize=300`)
+    if (res.ok) {
+      const json = await res.json()
+      if (json.documents && Array.isArray(json.documents)) {
+        for (const doc of json.documents) {
+          const fields = doc.fields || {}
+          const gId = fields.id?.stringValue || doc.name.split('/').pop()
+          
+          let members = []
+          if (fields.members?.stringValue) {
+            try { members = JSON.parse(fields.members.stringValue) } catch (err) {}
+          }
+
+          const g = {
+            _id: gId,
+            id: gId,
+            name: fields.name?.stringValue || 'Group',
+            description: fields.description?.stringValue || '',
+            creator: fields.creator?.stringValue || '',
+            members: members,
+            isGroup: true,
+            createdAt: fields.createdAt?.stringValue || new Date().toISOString()
+          }
+
+          groupMap.set(String(g._id || g.id), g)
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[Firestore] Groups fetch notice:', e)
+  }
+
+  const mergedList = Array.from(groupMap.values())
+  await setStoredData('@void_groups', mergedList)
+
+  return { data: { success: true, groups: mergedList } }
+}
+
 export const sendGroupMessage = async (groupId, data) => {
-  const groupMsgsKey = `@void_group_msgs_${groupId}`
   const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
-  const msgs = await getStoredData(groupMsgsKey, [])
+  const msgId = 'gmsg_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
 
   const newMsg = {
-    _id: 'gmsg_' + Date.now(),
-    sender: me,
+    _id: msgId,
+    id: msgId,
+    groupId: groupId,
+    sender: {
+      _id: me._id || me.id,
+      name: me.name || me.username || 'User',
+      avatar: me.avatar || '👤',
+      username: me.username
+    },
     content: data.content,
     createdAt: new Date().toISOString()
   }
 
+  const groupMsgsKey = `@void_group_msgs_${groupId}`
+  const msgs = await getStoredData(groupMsgsKey, [])
   msgs.push(newMsg)
   await setStoredData(groupMsgsKey, msgs)
+
+  try {
+    const FIRESTORE_GROUP_MSGS_URL = `${FIRESTORE_BASE_URL}/group_messages`
+    const fields = {
+      id: { stringValue: String(msgId) },
+      _id: { stringValue: String(msgId) },
+      groupId: { stringValue: String(groupId) },
+      senderId: { stringValue: String(newMsg.sender._id) },
+      senderName: { stringValue: String(newMsg.sender.name) },
+      senderAvatar: { stringValue: String(newMsg.sender.avatar) },
+      senderUsername: { stringValue: String(newMsg.sender.username) },
+      content: { stringValue: String(newMsg.content) },
+      createdAt: { stringValue: String(newMsg.createdAt) }
+    }
+    const firestoreUrl = `${FIRESTORE_GROUP_MSGS_URL}/${msgId}?${getUpdateMaskParams(fields)}`
+    await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    })
+  } catch (e) {
+    console.log('[Firestore] Group message send error:', e)
+  }
+
   return { data: { success: true, message: newMsg } }
 }
 
 export const getGroupMessages = async (groupId) => {
-  const msgs = await getStoredData(`@void_group_msgs_${groupId}`, [])
-  return { data: { success: true, messages: msgs } }
+  const groupMsgsKey = `@void_group_msgs_${groupId}`
+  const msgs = await getStoredData(groupMsgsKey, [])
+  const msgMap = new Map()
+
+  for (const m of msgs) {
+    msgMap.set(String(m._id || m.id), m)
+  }
+
+  try {
+    const FIRESTORE_GROUP_MSGS_URL = `${FIRESTORE_BASE_URL}/group_messages`
+    const res = await fetch(`${FIRESTORE_GROUP_MSGS_URL}?pageSize=300`)
+    if (res.ok) {
+      const json = await res.json()
+      if (json.documents && Array.isArray(json.documents)) {
+        for (const doc of json.documents) {
+          const fields = doc.fields || {}
+          const msgGroupId = fields.groupId?.stringValue || ''
+          
+          if (msgGroupId !== String(groupId)) continue
+
+          const mId = fields.id?.stringValue || doc.name.split('/').pop()
+          const m = {
+            _id: mId,
+            id: mId,
+            groupId: msgGroupId,
+            sender: {
+              _id: fields.senderId?.stringValue || 'anon',
+              name: fields.senderName?.stringValue || 'User',
+              avatar: fields.senderAvatar?.stringValue || '👤',
+              username: fields.senderUsername?.stringValue || ''
+            },
+            content: fields.content?.stringValue || '',
+            createdAt: fields.createdAt?.stringValue || new Date().toISOString()
+          }
+
+          msgMap.set(String(m._id || m.id), m)
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[Firestore] Group messages fetch notice:', e)
+  }
+
+  const mergedMsgs = Array.from(msgMap.values()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  await setStoredData(groupMsgsKey, mergedMsgs)
+
+  return { data: { success: true, messages: mergedMsgs } }
 }
 
 export const joinGroup = async (groupId) => {
+  const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  await addGroupMember(groupId, me._id || me.id)
   return { data: { success: true, message: 'Joined group successfully!' } }
 }
 
-export const addGroupMember = async (groupId, username) => {
-  return { data: { success: true, message: `Added @${username} to group` } }
+export const addGroupMember = async (groupId, userId) => {
+  try {
+    const res = await fetch(`${FIRESTORE_GROUPS_URL}/${groupId}`)
+    if (res.ok) {
+      const doc = await res.json()
+      const fields = doc.fields || {}
+      
+      let members = []
+      if (fields.members?.stringValue) {
+        try { members = JSON.parse(fields.members.stringValue) } catch (err) {}
+      }
+
+      if (!members.includes(String(userId))) {
+        members.push(String(userId))
+        const updatedFields = {
+          members: { stringValue: JSON.stringify(members) }
+        }
+        await fetch(`${FIRESTORE_GROUPS_URL}/${groupId}?updateMask.fieldPaths=members`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: updatedFields })
+        })
+      }
+    }
+  } catch (e) {
+    console.log('[Firestore] Add group member error:', e)
+  }
+  return { data: { success: true } }
+}
+
+export const removeGroupMember = async (groupId, userId) => {
+  try {
+    const res = await fetch(`${FIRESTORE_GROUPS_URL}/${groupId}`)
+    if (res.ok) {
+      const doc = await res.json()
+      const fields = doc.fields || {}
+      
+      let members = []
+      if (fields.members?.stringValue) {
+        try { members = JSON.parse(fields.members.stringValue) } catch (err) {}
+      }
+
+      const updatedMembers = members.filter(m => String(m) !== String(userId))
+      const updatedFields = {
+        members: { stringValue: JSON.stringify(updatedMembers) }
+      }
+      await fetch(`${FIRESTORE_GROUPS_URL}/${groupId}?updateMask.fieldPaths=members`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: updatedFields })
+      })
+    }
+  } catch (e) {
+    console.log('[Firestore] Remove group member error:', e)
+  }
+  return { data: { success: true } }
 }
 
 // ── Posts & Global Community Feed APIs ──────────────────────────────────────
@@ -1214,6 +1518,150 @@ export const uploadImageFile = async (base64Data) => {
   return null
 }
 
+export const publishStatus = async (data) => {
+  const me = await getStoredData('@void_current_user', DEFAULT_USERS[0])
+  const statusId = 'status_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
+  
+  const durationHours = me.isPremium ? 72 : 24
+  const expiryTimestamp = Date.now() + durationHours * 3600 * 1000
+
+  const newStatus = {
+    _id: statusId,
+    id: statusId,
+    userId: me._id || me.id,
+    name: me.name || me.username || 'User',
+    username: me.username,
+    avatar: me.avatar || '👑',
+    content: data.content,
+    color: data.color || '#c8ff00',
+    isPremiumStatus: !!me.isPremium,
+    createdAt: Date.now(),
+    expiresAt: expiryTimestamp,
+    viewers: []
+  }
+
+  // 1. Save to local storage cache for immediate feedback
+  const localStatuses = await getStoredData('@void_statuses', [])
+  localStatuses.unshift(newStatus)
+  await setStoredData('@void_statuses', localStatuses)
+
+  // 2. Upload to Cloud Firestore REST API so other users see it
+  try {
+    const fields = {
+      id: { stringValue: String(statusId) },
+      _id: { stringValue: String(statusId) },
+      userId: { stringValue: String(newStatus.userId) },
+      name: { stringValue: String(newStatus.name) },
+      username: { stringValue: String(newStatus.username) },
+      avatar: { stringValue: String(newStatus.avatar) },
+      content: { stringValue: String(newStatus.content) },
+      color: { stringValue: String(newStatus.color) },
+      isPremiumStatus: { booleanValue: Boolean(newStatus.isPremiumStatus) },
+      createdAt: { stringValue: String(newStatus.createdAt) },
+      expiresAt: { stringValue: String(newStatus.expiresAt) },
+      viewers: { stringValue: '[]' }
+    }
+    const firestoreUrl = `${FIRESTORE_STATUSES_URL}/${statusId}?${getUpdateMaskParams(fields)}`
+    await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    })
+  } catch (e) {
+    console.log('[Firestore] Status broadcast error:', e)
+  }
+
+  return { data: { success: true, status: newStatus } }
+}
+
+export const getStatuses = async () => {
+  const localStatuses = await getStoredData('@void_statuses', [])
+  const statusMap = new Map()
+
+  // Seed local statuses first
+  for (const s of localStatuses) {
+    if (s.expiresAt > Date.now()) {
+      statusMap.set(String(s.id), s)
+    }
+  }
+
+  try {
+    const res = await fetch(`${FIRESTORE_STATUSES_URL}?pageSize=300`)
+    if (res.ok) {
+      const json = await res.json()
+      if (json.documents && Array.isArray(json.documents)) {
+        for (const doc of json.documents) {
+          const fields = doc.fields || {}
+          const expiresAt = fields.expiresAt?.stringValue ? Number(fields.expiresAt.stringValue) : 0
+          
+          if (expiresAt && expiresAt < Date.now()) continue
+
+          const sId = fields.id?.stringValue || doc.name.split('/').pop()
+          const s = {
+            id: sId,
+            _id: sId,
+            userId: fields.userId?.stringValue || '',
+            name: fields.name?.stringValue || 'User',
+            username: fields.username?.stringValue || '',
+            avatar: fields.avatar?.stringValue || 'U',
+            content: fields.content?.stringValue || '',
+            color: fields.color?.stringValue || '#c8ff00',
+            isPremiumStatus: Boolean(fields.isPremiumStatus?.booleanValue),
+            createdAt: fields.createdAt?.stringValue ? Number(fields.createdAt.stringValue) : Date.now(),
+            expiresAt: expiresAt,
+            viewers: []
+          }
+
+          if (fields.viewers?.stringValue) {
+            try {
+              s.viewers = JSON.parse(fields.viewers.stringValue)
+            } catch (err) {}
+          }
+
+          statusMap.set(String(s.id), s)
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[Firestore] Statuses fetch notice:', e)
+  }
+
+  const mergedList = Array.from(statusMap.values()).sort((a, b) => b.createdAt - a.createdAt)
+  await setStoredData('@void_statuses', mergedList)
+
+  return { data: { success: true, statuses: mergedList } }
+}
+
+export const viewStatus = async (statusId, viewerInfo) => {
+  try {
+    const res = await fetch(`${FIRESTORE_STATUSES_URL}/${statusId}`)
+    if (res.ok) {
+      const doc = await res.json()
+      const fields = doc.fields || {}
+      
+      let viewers = []
+      if (fields.viewers?.stringValue) {
+        try { viewers = JSON.parse(fields.viewers.stringValue) } catch (err) {}
+      }
+
+      const exists = viewers.some(v => String(v.id) === String(viewerInfo.id))
+      if (!exists) {
+        viewers.push(viewerInfo)
+        const updatedFields = {
+          viewers: { stringValue: JSON.stringify(viewers) }
+        }
+        await fetch(`${FIRESTORE_STATUSES_URL}/${statusId}?updateMask.fieldPaths=viewers`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: updatedFields })
+        })
+      }
+    }
+  } catch (e) {
+    console.log('[Firestore] View status register error:', e)
+  }
+}
+
 export default {
   setToken,
   loadSavedToken,
@@ -1230,6 +1678,7 @@ export default {
   updatePreferences,
   sendMessage,
   getMessages,
+  saveReceivedMessage,
   createGroup,
   sendGroupMessage,
   getGroupMessages,
@@ -1249,5 +1698,10 @@ export default {
   useReferCode,
   getReels,
   uploadReel,
-  uploadImageFile
+  uploadImageFile,
+  publishStatus,
+  getStatuses,
+  viewStatus,
+  getGroups,
+  removeGroupMember
 }

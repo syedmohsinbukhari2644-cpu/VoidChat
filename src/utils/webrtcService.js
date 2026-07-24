@@ -129,6 +129,12 @@ class WebRTCService {
     }
   }
 
+  emitSendMessage(messageData) {
+    if (this.socket?.connected) {
+      this.socket.emit('send-message', messageData)
+    }
+  }
+
   // ── Get Local Stream (mic/camera) ─────────────────────────
   async getLocalStream(isVideo = false) {
     const constraints = {

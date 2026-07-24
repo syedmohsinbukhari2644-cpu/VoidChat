@@ -18,7 +18,7 @@ const MapView = () => null;
 const Marker = () => null;
 import * as DocumentPicker from 'expo-document-picker'
 import * as Contacts from 'expo-contacts'
-import { sendMessage as sendApiMessage, getMessages, deleteMessage, uploadImageFile } from '../api'
+import { sendMessage as sendApiMessage, getMessages, deleteMessage, uploadImageFile, saveReceivedMessage } from '../api'
 
 let ScreenCapture = null
 try {
@@ -330,6 +330,10 @@ export default function ChatScreen({
           isDelivered: true,
           streak: false,
         }
+
+        // Persist message to local storage
+        saveReceivedMessage(data).catch(e => console.log('Error saving received message in screen.js:', e))
+
         setMessages(prev => {
           if (prev.some(m => m.id === newMsg.id)) return prev
           return [...prev, newMsg]
